@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="a41d6ab1-d324-406e-83d0-5c55029f063e" name="Changes" comment="" />
+    <list default="true" id="a41d6ab1-d324-406e-83d0-5c55029f063e" name="Changes" comment=" Refactored voice assistant and added async light control&#10;&#10;# Conflicts:&#10;#&#9;.idea/workspace.xml&#10;#&#9;app/routes/voice.py" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
