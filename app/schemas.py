@@ -72,3 +72,12 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     username: Optional[str] = None
+
+# Home Assistant schemas
+class LightState(BaseModel):
+    entity_id: str
+    brightness: int
+
+class LightStateResponse(BaseModel):
+    message: str
+    success: bool
