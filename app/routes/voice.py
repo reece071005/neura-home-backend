@@ -1,13 +1,14 @@
 # app/routes/voice.py
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from app.voice.handler import parse_intent
 from app.voice.hass import send_light_command
+from app import models, auth
 
 router = APIRouter(prefix="/voice", tags=["Voice Assistant"])
 
 @router.get("/command")
-async def voice_command(text: str = Query(..., description="Command text from user")):
+async def voice_command(text: str = Query(..., description="Command text from user"), current_user: models.User = Depends(auth.get_current_active_user)):
     """
     Accepts a voice command as text, parses intent, and executes action via Home Assistant.
     Example: /voice/command?text=turn on the guest room light
