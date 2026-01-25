@@ -1,5 +1,3 @@
-
-
 import requests
 
 # Replace tihs with your local Home Assistant URL and port
@@ -11,8 +9,9 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
+
 def send_light_command(intent, location):
-    entity_id = f"light.{location.replace(' ', '_')}"  # e.g., light.living_room
+    entity_id = f"light.{location.replace(' ', '_')}"
 
     if intent == "turn_on_light":
         print(f"Turning on light for {entity_id}")

@@ -18,25 +18,19 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Neura API",
-    description="FastAPI application with PostgreSQL and JWT authentication",
+    description="FastAPI application with voice assistant integration",
     version="1.0.0",
-    lifespan=lifespan,
+    lifespan=lifespan
 )
-
-# Include routers
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(homecontrollers.router)
 app.include_router(voice.router)
 
-
 @app.get("/")
 async def read_root():
-    """Root endpoint"""
     return {"message": "Welcome to Neura API"}
-
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
     return {"status": "healthy"}
