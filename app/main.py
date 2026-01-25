@@ -4,8 +4,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.database import engine, Base
-from app.routes import auth, users
-
+from app.routes import auth, users, homecontrollers, voice
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -27,6 +26,8 @@ app = FastAPI(
 # Include routers
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(homecontrollers.router)
+app.include_router(voice.router)
 
 
 @app.get("/")
