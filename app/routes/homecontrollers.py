@@ -20,3 +20,18 @@ async def set_light(
         return await homeassistant.turn_on_light(light_state)
     else:
         return await homeassistant.turn_off_light(light_state)
+
+@router.post("/device-control")
+async def control_device_endpoint(
+    device: schemas.DeviceControlRequest,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await homeassistant.control_device(device)
+
+
+
+@router.get("/devices", response_model=list[schemas.DeviceInfo])
+async def list_devices(
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await homeassistant.get_all_devices()

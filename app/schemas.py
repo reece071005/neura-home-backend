@@ -82,3 +82,20 @@ class LightState(BaseModel):
 class LightStateResponse(BaseModel):
     message: str
     success: bool
+
+
+class DeviceInfo(BaseModel):
+    entity_id: str
+    kind: str
+    name: str
+
+
+class DeviceControlRequest(BaseModel):
+    entity_id: str
+    domain: Literal["light", "fan", "cover", "climate"]
+    state: Literal["on", "off"]
+    brightness: Optional[int] = None
+    temperature: Optional[float] = None
+    hvac_mode: Optional[str] = None
+    position: Optional[int] = None
+
