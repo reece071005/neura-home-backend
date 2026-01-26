@@ -11,19 +11,12 @@ router = APIRouter(prefix="/homecontrollers", tags=["homecontrollers"])
 
 
 # API endpoint to set the state of a light
-@router.post("/turn-on-light", response_model=schemas.LightStateResponse)
-async def turn_on_light_api(
+@router.post("/light", response_model=schemas.LightStateResponse)
+async def set_light(
     light_state: schemas.LightState,
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
-    """Turn on a light"""
-    return await homeassistant.turn_on_light(light_state)
-
-# API endpoint to turn off a light
-@router.post("/turn-off-light", response_model=schemas.LightStateResponse)
-async def turn_off_light_api(
-    light_state: schemas.LightState,
-    current_user: models.User = Depends(auth.get_current_active_user),
-):
-    """Turn off a light"""
-    return await homeassistant.turn_off_light(light_state)
+    if light_state.state == "on":
+        return await homeassistant.turn_on_light(light_state)
+    else:
+        return await homeassistant.turn_off_light(light_state)

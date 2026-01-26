@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional
+from typing import Optional, Literal
 from datetime import datetime
 from app.models import UserRole
 
@@ -76,7 +76,8 @@ class TokenData(BaseModel):
 # Home Assistant schemas
 class LightState(BaseModel):
     entity_id: str
-    brightness: int
+    state: Literal["on", "off"]
+    brightness: Optional[int] = None
 
 class LightStateResponse(BaseModel):
     message: str
