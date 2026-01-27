@@ -46,35 +46,46 @@ async def turn_off_light(light_state: schemas.LightState):
     except Exception as e:
         return schemas.LightStateResponse(message=str(e), success=False)
 
-# Get all available HA devices
+# Get all available HA devices (with the area name)
 async def get_all_devices():
     try:
         async with aiohttp.ClientSession() as session:
+            # Fetch all device states
             async with session.get(f"{HOME_ASSISTANT_URL}/states", headers=HEADERS) as response:
                 if response.status != 200:
                     return []
+                states_data = await response.json()
 
-                data = await response.json()
+            # Fetch area metadata
+            async with session.get(f"{HOME_ASSISTANT_URL}/areas", headers=HEADERS) as area_response:
+                area_lookup = {}
+                if area_response.status == 200:
+                    area_data = await area_response.json()
+                    area_lookup = {a["area_id"]: a["name"] for a in area_data}
 
-                devices = []
-                for item in data:
-                    entity_id = item.get("entity_id", "")
-                    kind = entity_id.split(".")[0]
-                    name = item.get("attributes", {}).get("friendly_name", "")
+            # Building a device list
+            devices = []
+            for item in states_data:
+                entity_id = item.get("entity_id", "")
+                kind = entity_id.split(".")[0]
+                name = item.get("attributes", {}).get("friendly_name", "")
+                area_id = item.get("area_id", None)
+                area_name = area_lookup.get(area_id, "")
 
-                    if kind in ["light", "fan", "switch", "cover", "climate"]:
-                        devices.append({
-                            "entity_id": entity_id,
-                            "kind": kind,
-                            "name": name
-                        })
+                if kind in ["light", "fan", "switch", "cover", "climate"]:
+                    devices.append({
+                        "entity_id": entity_id,
+                        "kind": kind,
+                        "name": name,
+                        "area": area_name
+                    })
 
-                return devices
+            return devices
     except Exception as e:
         print("Failed to get devices:", str(e))
         return []
 
-# 🔧 General-purpose device control (Step 2)
+# General-purpose device control
 async def control_device(device: schemas.DeviceControlRequest):
     payload = {"entity_id": device.entity_id}
 
