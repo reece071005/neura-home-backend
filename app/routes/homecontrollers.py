@@ -1,5 +1,6 @@
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -35,3 +36,37 @@ async def list_devices(
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
     return await homeassistant.get_all_devices()
+
+@router.get('/current-state')
+async def get_current_state(
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await homeassistant.get_current_state()
+
+@router.get('/camera-snapshot')
+async def get_camera_snapshot(
+    camera_entity: str = Query(..., description="Camera entity ID (e.g., 'camera.frontdoor')"),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    """
+    Get a snapshot image from a Home Assistant camera.
+    
+    - **camera_entity**: The camera entity ID (e.g., "camera.frontdoor")
+    
+    Returns the image as a JPEG stream.
+    """
+    image_data, content_type = await homeassistant.get_camera_snapshot(camera_entity)
+    
+    if image_data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Failed to retrieve camera snapshot for {camera_entity}"
+        )
+    
+    return StreamingResponse(
+        iter([image_data]),
+        media_type=content_type or "image/jpeg",
+        headers={
+            "Content-Disposition": f"inline; filename={camera_entity.replace('.', '_')}.jpg"
+        }
+    )

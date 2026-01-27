@@ -6,7 +6,7 @@ from app import schemas
 async def turn_on_light(light_state: schemas.LightState):
     payload = {"entity_id": light_state.entity_id}
     if light_state.brightness is not None:
-        payload["brightness"] = light_state.brightness  # only include if provided
+        payload["brightness"] = light_state.brightness 
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -114,3 +114,44 @@ async def control_device(device: schemas.DeviceControlRequest):
                 return {"success": False, "message": f"HA {response.status}: {text}"}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+async def get_current_state():
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"{HOME_ASSISTANT_URL}/states", headers=HEADERS) as response:
+                if response.status != 200:
+                    return []
+                states_data = await response.json()
+                return states_data
+    except Exception as e:
+        print("Failed to get current state:", str(e))
+        return []
+
+async def get_camera_snapshot(camera_entity: str):
+    """
+    Fetch a camera snapshot from Home Assistant.
+    
+    Args:
+        camera_entity: The camera entity ID (e.g., "camera.frontdoor")
+    
+    Returns:
+        Tuple of (image_bytes, content_type) or (None, None) on error
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{HOME_ASSISTANT_URL}/camera_proxy/{camera_entity}",
+                headers=HEADERS,
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as response:
+                if response.status != 200:
+                    return None, None
+                
+                # Read the image data
+                image_data = await response.read()
+                content_type = response.headers.get('Content-Type', 'image/jpeg')
+                
+                return image_data, content_type
+    except Exception as e:
+        print(f"Failed to get camera snapshot: {str(e)}")
+        return None, None
