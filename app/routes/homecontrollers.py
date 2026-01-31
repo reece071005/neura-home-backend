@@ -30,7 +30,6 @@ async def control_device_endpoint(
     return await homeassistant.control_device(device)
 
 
-
 @router.get("/devices", response_model=list[schemas.DeviceInfo])
 async def list_devices(
     current_user: models.User = Depends(auth.get_current_active_user),

@@ -72,7 +72,7 @@ async def get_all_devices():
                 area_id = item.get("area_id", None)
                 area_name = area_lookup.get(area_id, "")
 
-                if kind in ["light", "fan", "switch", "cover", "climate"]:
+                if kind in ["light", "fan", "switch", "cover", "climate", "media_player", "camera", "sensor", "binary_sensor"]:
                     devices.append({
                         "entity_id": entity_id,
                         "kind": kind,
