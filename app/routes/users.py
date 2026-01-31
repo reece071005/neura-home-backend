@@ -114,4 +114,29 @@ async def change_user_email(
     await db.refresh(db_user)
     return db_user
 
+@router.delete("/delete-user/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user_as_admin(
+        user_id: int,
+        db: AsyncSession = Depends(get_db),
+        current_admin: models.User = Depends(auth.get_current_admin_user),
+):
+    """Admin-only endpoint to delete a user by id."""
+    result = await db.execute(select(models.User).where(models.User.id == user_id))
+    db_user = result.scalar_one_or_none()
+
+    if not db_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    if db_user.role == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete admin users",
+        )
+
+    await db.delete(db_user)
+    await db.commit()
+    return None
 
