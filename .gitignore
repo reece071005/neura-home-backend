@@ -5,3 +5,5 @@ venv/
 .idea/workspace.xml
 .idea/
 /.idea/
+/models/Phi-4-mini-instruct-Q4_K_M.gguf
+app/voice/models/Phi-4-mini-instruct-Q4_K_M.gguf

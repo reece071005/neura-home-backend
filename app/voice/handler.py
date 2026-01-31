@@ -1,40 +1,95 @@
 # app/voice/handler.py
 
 import re
+import requests
+
+LLM_ENDPOINT = "http://localhost:8080/completion"
 
 class IntentParser:
     def __init__(self, text: str):
-        self.text = text.lower()
+        self.text = text.lower().strip()
 
     def parse(self) -> dict:
-        intent = "unknown"
-        location = "unknown"
-        brightness = None
+        # Rule-based parsing
+        if "turn on" in self.text or "switch on" in self.text:
+            location = self.extract_location()
+            return {
+                "intent": "turn_on_light",
+                "device": "light",
+                "location": location,
+                "brightness": None,
+                "response": f"Turning on the {location} light."
+            }
 
-        # Identify location
-        if "guest room" in self.text:
-            location = "guest_room_spot_1"
-        elif "living room" in self.text:
-            location = "living_room"
-        elif "bedroom" in self.text:
-            location = "bedroom"
+        if "turn off" in self.text or "switch off" in self.text:
+            location = self.extract_location()
+            return {
+                "intent": "turn_off_light",
+                "device": "light",
+                "location": location,
+                "brightness": None,
+                "response": f"Turning off the {location} light."
+            }
 
-        # Brightness (e.g., "set light to 80%" or "dim light to 40")
-        brightness_match = re.search(r"(\d{1,3})\s*%", self.text)
-        if brightness_match:
-            brightness_value = int(brightness_match.group(1))
-            brightness = min(max(int(brightness_value * 2.55), 0), 255)  # convert 0-100% to 0-255 scale
+        if "dim" in self.text or "brightness" in self.text:
+            location = self.extract_location()
+            brightness = self.extract_brightness()
+            return {
+                "intent": "set_brightness",
+                "device": "light",
+                "location": location,
+                "brightness": brightness,
+                "response": f"Setting brightness of {location} light to {brightness}%."
+            }
 
-        # Intent detection
-        if "turn on" in self.text and "light" in self.text:
-            intent = "turn_on_light"
-        elif "turn off" in self.text and "light" in self.text:
-            intent = "turn_off_light"
-        elif "dim" in self.text or "brightness" in self.text or "set to" in self.text:
-            intent = "turn_on_light"  # We'll use brightness + on for simplicity
+        # Fallback to LLM
+        return self.call_llm()
 
-        return {
-            "intent": intent,
-            "location": location,
-            "brightness": brightness
-        }
+    def extract_location(self) -> str:
+        # This is a placeholder, cann be edited/enhanced later
+        known_locations = ["kitchen", "bedroom", "living room", "guest room", "hallway"]
+        for loc in known_locations:
+            if loc in self.text:
+                return loc
+        return "current"  # fallback location
+
+    def extract_brightness(self) -> int:
+        match = re.search(r"\b(\d{1,3})\s*(percent|%)", self.text)
+        if match:
+            value = int(match.group(1))
+            return min(max(value, 0), 100)  # clamp between 0-100
+        if "dim" in self.text:
+            return 40  # default dim value
+        return 100  # fallback full brightness
+
+    def call_llm(self) -> dict:
+        try:
+            payload = {
+                "prompt": self.text,
+                "n_predict": 128
+            }
+            response = requests.post(LLM_ENDPOINT, json=payload)
+            if response.status_code == 200:
+                result = response.json()
+                content = result.get("content", "{}")
+
+                # parsing the response as json
+                import json
+                parsed = json.loads(content)
+                return parsed
+
+            return {
+                "intent": "unknown",
+                "device": None,
+                "location": None,
+                "brightness": None,
+                "response": "Sorry, I couldn't understand the command."
+            }
+        except Exception as e:
+            return {
+                "intent": "unknown",
+                "device": None,
+                "location": None,
+                "brightness": None,
+                "response": f"LLM error: {str(e)}"
+            }
