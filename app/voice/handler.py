@@ -1,95 +1,136 @@
 # app/voice/handler.py
 
 import re
-import requests
+import json
+import aiohttp
+from typing import Optional
+from pydantic import BaseModel, ValidationError
 
-LLM_ENDPOINT = "http://localhost:8080/completion"
+class LLMIntentResponse(BaseModel):
+    intent: str
+    device: Optional[str] = None
+    location: Optional[str] = None
+    brightness: Optional[int] = None
+    response: Optional[str] = None
+
 
 class IntentParser:
+    LLM_ENDPOINT = "http://localhost:8080/completion"
+
+    known_locations = [
+        "kitchen",
+        "bedroom",
+        "living room",
+        "guest room",
+        "hallway",
+    ]
+
+    DEFAULT_DIM_BRIGHTNESS = 40
+
     def __init__(self, text: str):
         self.text = text.lower().strip()
 
-    def parse(self) -> dict:
-        # Rule-based parsing
+    #public entry point
+    async def parse(self) -> dict:
+        """
+        1. Try rule-based parsing (fast & cheap)
+        2. If not matched, fallback to LLM
+        """
+        rule_result = self._parse_rule_based()
+        if rule_result:
+            return rule_result
+
+        llm_result = await self._call_llm()
+        if llm_result:
+            return llm_result.model_dump()
+
+        return {
+            "intent": "unknown",
+            "device": None,
+            "location": None,
+            "brightness": None,
+            "response": "Sorry, I didn't understand that.",
+        }
+
+    #  rule-based parsing
+    def _parse_rule_based(self) -> Optional[dict]:
+        location = self._extract_location()
+
+        # Turn ON
         if "turn on" in self.text or "switch on" in self.text:
-            location = self.extract_location()
             return {
                 "intent": "turn_on_light",
                 "device": "light",
                 "location": location,
                 "brightness": None,
-                "response": f"Turning on the {location} light."
+                "response": f"Turning on the {location} light.",
             }
 
+        # Turn OFF
         if "turn off" in self.text or "switch off" in self.text:
-            location = self.extract_location()
             return {
                 "intent": "turn_off_light",
                 "device": "light",
                 "location": location,
                 "brightness": None,
-                "response": f"Turning off the {location} light."
+                "response": f"Turning off the {location} light.",
             }
 
+        # Brightness
         if "dim" in self.text or "brightness" in self.text:
-            location = self.extract_location()
-            brightness = self.extract_brightness()
+            brightness = self._extract_brightness()
             return {
                 "intent": "set_brightness",
                 "device": "light",
                 "location": location,
                 "brightness": brightness,
-                "response": f"Setting brightness of {location} light to {brightness}%."
+                "response": f"Setting brightness of {location} light to {brightness}%.",
             }
 
-        # Fallback to LLM
-        return self.call_llm()
+        return None
 
-    def extract_location(self) -> str:
-        # This is a placeholder, cann be edited/enhanced later
-        known_locations = ["kitchen", "bedroom", "living room", "guest room", "hallway"]
-        for loc in known_locations:
+    # helpers
+    def _extract_location(self) -> str:
+        for loc in self.known_locations:
             if loc in self.text:
                 return loc
-        return "current"  # fallback location
+        return "current"
 
-    def extract_brightness(self) -> int:
+    def _extract_brightness(self) -> int:
         match = re.search(r"\b(\d{1,3})\s*(percent|%)", self.text)
         if match:
             value = int(match.group(1))
-            return min(max(value, 0), 100)  # clamp between 0-100
+            return max(0, min(value, 100))
+
         if "dim" in self.text:
-            return 40  # default dim value
-        return 100  # fallback full brightness
+            return self.DEFAULT_DIM_BRIGHTNESS
 
-    def call_llm(self) -> dict:
+        return 100
+
+    # LLM fallback (async + validated)
+    async def _call_llm(self) -> Optional[LLMIntentResponse]:
+        payload = {
+            "prompt": self.text,
+            "n_predict": 256,
+        }
+
         try:
-            payload = {
-                "prompt": self.text,
-                "n_predict": 128
-            }
-            response = requests.post(LLM_ENDPOINT, json=payload)
-            if response.status_code == 200:
-                result = response.json()
-                content = result.get("content", "{}")
+            async with aiohttp.ClientSession() as session:
+                async with session.post(self.LLM_ENDPOINT, json=payload) as resp:
+                    if resp.status != 200:
+                        return None
 
-                # parsing the response as json
-                import json
-                parsed = json.loads(content)
-                return parsed
+                    data = await resp.json()
+                    content = data.get("content", "")
 
-            return {
-                "intent": "unknown",
-                "device": None,
-                "location": None,
-                "brightness": None,
-                "response": "Sorry, I couldn't understand the command."
-            }
+                    # LLM MUST return JSON
+                    try:
+                        parsed_json = json.loads(content)
+                        return LLMIntentResponse(**parsed_json)
+                    except (json.JSONDecodeError, ValidationError) as e:
+                        print("LLM output invalid:", e)
+                        return None
+
         except Exception as e:
-            return {
-                "intent": "unknown",
-                "device": None,
-                "location": None,
-                "brightness": None,
-                "response": f"LLM error: {str(e)}"
-            }
+            print("LLM request failed:", e)
+            return None
