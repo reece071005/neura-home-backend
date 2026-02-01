@@ -20,7 +20,7 @@ async def voice_command(
     Accepts a voice command as text, parses intent, and executes action via Home Assistant.
     Example: /voice/command?text=turn on the guest room light
     """
-    intent_data = IntentParser(text).parse()
+    intent_data = await IntentParser(text).parse()
 
     if intent_data["intent"] == "unknown":
         return {
@@ -99,8 +99,8 @@ async def speech_to_text(
             }
         
         # Parse intent and execute command
-        intent_data = IntentParser(transcribed_text).parse()
-        
+        intent_data = await IntentParser(transcribed_text).parse()
+
         if intent_data["intent"] == "unknown":
             return {
                 "success": False,
