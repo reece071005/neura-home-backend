@@ -40,18 +40,24 @@ def recognize_command_from_mic():
                 return text
 
 
-def convert_mp3_to_wav(mp3_file_path: str, output_path: str = None) -> str:
+def _convert_to_wav(audio_file_path: str, output_path: str = None) -> str:
     """
-    Convert MP3 file to WAV format suitable for Vosk (16kHz, mono, 16-bit PCM).
+    Convert MP3 or M4A file to WAV format suitable for Vosk (16kHz, mono, 16-bit PCM).
     
     Args:
-        mp3_file_path: Path to the input MP3 file
+        audio_file_path: Path to the input audio file (MP3 or M4A)
         output_path: Optional path for output WAV file. If None, creates a temp file.
     
     Returns:
         Path to the converted WAV file
     """
-    audio = AudioSegment.from_mp3(mp3_file_path)
+    path_lower = audio_file_path.lower()
+    if path_lower.endswith(".mp3"):
+        audio = AudioSegment.from_mp3(audio_file_path)
+    elif path_lower.endswith(".m4a"):
+        audio = AudioSegment.from_file(audio_file_path, format="m4a")
+    else:
+        raise ValueError(f"Unsupported format for conversion: {audio_file_path}")
     
     # Convert to mono, 16kHz, 16-bit PCM (required by Vosk)
     audio = audio.set_channels(1)  # Mono
@@ -59,7 +65,6 @@ def convert_mp3_to_wav(mp3_file_path: str, output_path: str = None) -> str:
     audio = audio.set_sample_width(2)  # 16-bit (2 bytes)
     
     if output_path is None:
-        # Create temporary file
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
         output_path = temp_file.name
         temp_file.close()
@@ -70,10 +75,10 @@ def convert_mp3_to_wav(mp3_file_path: str, output_path: str = None) -> str:
 
 def recognize_from_file(audio_file_path: str) -> str:
     """
-    Recognize speech from an audio file (MP3 or WAV).
+    Recognize speech from an audio file (MP3, M4A, or WAV).
     
     Args:
-        audio_file_path: Path to the audio file (MP3 or WAV)
+        audio_file_path: Path to the audio file (MP3, M4A, or WAV)
     
     Returns:
         Transcribed text string
@@ -81,12 +86,13 @@ def recognize_from_file(audio_file_path: str) -> str:
     if not os.path.exists(model_path):
         raise FileNotFoundError("Vosk model not found at: " + model_path)
     
-    # Convert MP3 to WAV if needed
+    # Convert MP3 or M4A to WAV if needed
     wav_path = audio_file_path
     temp_file_created = False
+    path_lower = audio_file_path.lower()
     
-    if audio_file_path.lower().endswith('.mp3'):
-        wav_path = convert_mp3_to_wav(audio_file_path)
+    if path_lower.endswith(".mp3") or path_lower.endswith(".m4a"):
+        wav_path = _convert_to_wav(audio_file_path)
         temp_file_created = True
     
     try:
