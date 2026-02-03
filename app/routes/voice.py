@@ -7,6 +7,7 @@ from app.voice.handler import IntentParser
 from app.voice.recognizer import recognize_from_file
 from app.core.homeassistant import LightControl
 from app import models, auth, schemas
+from app.voiceassistant.va import VoiceAssistant
 
 router = APIRouter(prefix="/voice", tags=["Voice Assistant"])
 
@@ -20,7 +21,14 @@ async def voice_command(
     Accepts a voice command as text, parses intent, and executes action via Home Assistant.
     Example: /voice/command?text=turn on the guest room light
     """
-    return await IntentParser(text).parse()
+    execute_command = await VoiceAssistant.search_commands(text)
+    if execute_command:
+        return await VoiceAssistant.execute_command(execute_command)
+    else:
+        return {
+            "success": False,
+            "message": "No command found"
+        }
 
 
 @router.post("/stt")
@@ -78,52 +86,15 @@ async def speech_to_text(
                 "message": "Speech recognized successfully"
             }
         
-        # Parse intent and execute command
-        intent_data = await IntentParser(transcribed_text).parse()
-
-        if intent_data["intent"] == "unknown":
-            return {
-                "success": False,
-                "transcribed_text": transcribed_text,
-                "intent_data": intent_data,
-                "message": "Sorry, I didn't understand the command."
-            }
-
-        entity_id = intent_data.get("entity_id") or (
-            f"light.{intent_data.get('location', '').replace(' ', '_')}" if intent_data.get("location") else None
-        )
-        if not entity_id:
-            return {
-                "success": False,
-                "transcribed_text": transcribed_text,
-                "intent_data": intent_data,
-                "message": "Could not match to a device. Try being more specific (e.g. 'Reece's bedroom light')."
-            }
-
-        brightness = intent_data.get("brightness")
-        light_state = schemas.LightState(entity_id=entity_id, brightness=brightness)
-        
-        if intent_data["intent"] == "turn_on_light":
-            result = await LightControl.turn_on_light(light_state)
-        elif intent_data["intent"] == "turn_off_light":
-            result = await LightControl.turn_off_light(light_state)
+        execute_command = await VoiceAssistant.search_commands(transcribed_text)
+        if execute_command:
+            return await VoiceAssistant.execute_command(execute_command)
         else:
             return {
                 "success": False,
-                "transcribed_text": transcribed_text,
-                "intent_data": intent_data,
-                "message": "Intent not supported yet."
+                "message": "No command found"
             }
-        
-        return {
-            "success": result.success,
-            "transcribed_text": transcribed_text,
-            "intent_data": intent_data,
-            "command_result": {
-                "success": result.success,
-                "message": result.message
-            }
-        }
+
     
     except Exception as e:
         raise HTTPException(
