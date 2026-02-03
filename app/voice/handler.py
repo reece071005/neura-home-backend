@@ -1,11 +1,16 @@
 # app/voice/handler.py
 
-import re
 import json
-import aiohttp
+import re
 from typing import Optional
+
 from pydantic import BaseModel, ValidationError
+
+from app.core.redis_init import get_redis
+from app.voice.device_matcher import match_entity
 from app.voice.llm_client import fetch_intent_from_llm
+
+
 class LLMIntentResponse(BaseModel):
     intent: str
     device: Optional[str] = None
@@ -15,85 +20,124 @@ class LLMIntentResponse(BaseModel):
 
 
 class IntentParser:
-
-    known_locations = [
-        "kitchen",
-        "bedroom",
-        "living room",
-        "guest room",
-        "hallway",
-    ]
-
     DEFAULT_DIM_BRIGHTNESS = 40
 
     def __init__(self, text: str):
         self.text = text.lower().strip()
 
-    #public entry point
     async def parse(self) -> dict:
         """
         1. Try rule-based parsing (fast & cheap)
         2. If not matched, fallback to LLM
+        3. Match user phrase to a specific entity_id from controllable_devices using embeddings
         """
-        rule_result = self._parse_rule_based()
-        if rule_result:
-            return rule_result
 
-        llm_result = await self._call_llm()
-        if llm_result:
-            return llm_result.model_dump()
-
-        return {
+        result_dict = {
             "intent": "unknown",
             "device": None,
             "location": None,
             "brightness": None,
             "response": "Sorry, I didn't understand that.",
         }
+        rule_result = self._parse_rule_based()
+        if rule_result:
+            result_dict.update(rule_result)
+
+        result_dict = await self._add_entity_match(result_dict)
+
+        result_dict = await self._call_llm(result_dict)
+        return result_dict
+
+    async def _add_entity_match(self, intent_result: dict) -> dict:
+        """Resolve entity_id and top candidates from controllable_devices using embedding match."""
+        controllable = await self._get_controllable_devices()
+        if controllable:
+            candidates = await match_entity(
+                self.text,
+                controllable,
+                device_hint=intent_result.get("device"),
+            )
+            intent_result["entity_id"] = candidates[0] if candidates else None
+            intent_result["entity_id_candidates"] = candidates  # top 5 (or fewer)
+        else:
+            intent_result["entity_id"] = None
+            intent_result["entity_id_candidates"] = []
+        return intent_result
+
+    async def _get_controllable_devices(self) -> list[str]:
+        """Load list of entity_ids from Redis (populated by cache_management)."""
+        try:
+            redis = get_redis()
+            raw = await redis.get("controllable_devices")
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+        return []
 
     #  rule-based parsing
     def _parse_rule_based(self) -> Optional[dict]:
-        location = self._extract_location()
+
+        LIGHT_KEYWORDS = ["light", "lights", "lamp", "bulb"]
+        FAN_KEYWORDS = ["fan", "fans"]
+        BLIND_KEYWORDS = ["blind", "blinds", "cover"]
+        AC_KEYWORDS = ["ac", "air conditioner", "climate"]
+
+        ON_KEYWORDS = ["turn on", "switch on"]
+        OFF_KEYWORDS = ["turn off", "switch off"]
+        DIM_KEYWORDS = ["dim", "brightness"]
+        result_dict = {
+            "intent": "unknown",
+            "device": None,
+            "location": None,
+            "brightness": None,
+            "response": None,
+        }
+
 
         # Turn ON
-        if "turn on" in self.text or "switch on" in self.text:
-            return {
-                "intent": "turn_on_light",
-                "device": "light",
-                "location": location,
-                "brightness": None,
-                "response": f"Turning on the {location} light.",
-            }
-
+        if any(keyword in self.text for keyword in ON_KEYWORDS):
+            result_dict["intent"] = "turn_on"
+            return result_dict
         # Turn OFF
-        if "turn off" in self.text or "switch off" in self.text:
-            return {
-                "intent": "turn_off_light",
-                "device": "light",
-                "location": location,
-                "brightness": None,
-                "response": f"Turning off the {location} light.",
-            }
+        if any(keyword in self.text for keyword in OFF_KEYWORDS):
+            result_dict["intent"] = "turn_off"
+            return result_dict
 
         # Brightness
-        if "dim" in self.text or "brightness" in self.text:
+        if any(keyword in self.text for keyword in DIM_KEYWORDS):
             brightness = self._extract_brightness()
-            return {
-                "intent": "set_brightness",
-                "device": "light",
-                "location": location,
-                "brightness": brightness,
-                "response": f"Setting brightness of {location} light to {brightness}%.",
-            }
+            result_dict["intent"] = "set_brightness"
+            result_dict["brightness"] = brightness
+            return result_dict
 
-        return None
+
+        # Light
+        if any(keyword in self.text for keyword in LIGHT_KEYWORDS):
+            result_dict["device"] = "light"
+            return result_dict
+
+        # Fan
+        if any(keyword in self.text for keyword in FAN_KEYWORDS):
+            result_dict["device"] = "fan"
+            return result_dict
+
+        # Blind
+        if any(keyword in self.text for keyword in BLIND_KEYWORDS):
+            result_dict["device"] = "cover"
+            return result_dict
+
+        # AC
+        if any(keyword in self.text for keyword in AC_KEYWORDS):
+            result_dict["device"] = "climate"
+            return result_dict
+
+        return result_dict
 
     # helpers
     def _extract_location(self) -> str:
-        for loc in self.known_locations:
-            if loc in self.text:
-                return loc
-        return "current"
+        pass
+
 
     def _extract_brightness(self) -> int:
         match = re.search(r"\b(\d{1,3})\s*(percent|%)", self.text)
@@ -107,8 +151,8 @@ class IntentParser:
         return 100
 
     # LLM fallback (async + validated)
-    async def _call_llm(self) -> Optional[LLMIntentResponse]:
-        llm_result = await fetch_intent_from_llm(self.text)
+    async def _call_llm(self, intent_result: dict) -> dict:
+        llm_result = await fetch_intent_from_llm(self.text, intent_result)
         if llm_result:
             return llm_result
         return None

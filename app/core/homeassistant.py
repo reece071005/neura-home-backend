@@ -272,7 +272,9 @@ class DeviceControl:
         controllable_devices = []
         devices = await DeviceControl.get_all_devices()
         for device in devices:
-            if device.get("kind") in ["light", "fan", "switch", "cover", "climate"]:
+            if device.get("kind") in ["light", "fan", "cover", "climate"]:
+                if 'spot' in device.get("entity_id"):
+                    continue
                 controllable_devices.append(device.get("entity_id"))
         return controllable_devices
 

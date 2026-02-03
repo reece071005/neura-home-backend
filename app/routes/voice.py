@@ -20,27 +20,7 @@ async def voice_command(
     Accepts a voice command as text, parses intent, and executes action via Home Assistant.
     Example: /voice/command?text=turn on the guest room light
     """
-    intent_data = await IntentParser(text).parse()
-
-    if intent_data["intent"] == "unknown":
-        return {
-            "success": False,
-            "message": "Sorry, I didn't understand the command."
-        }
-
-    entity_id = f"light.{intent_data.get('location', '').replace(' ', '_')}"
-    brightness = intent_data.get("brightness")
-
-    light_state = schemas.LightState(entity_id=entity_id, brightness=brightness)
-
-    if intent_data["intent"] == "turn_on_light":
-        result = await LightControl.turn_on_light(light_state)
-    elif intent_data["intent"] == "turn_off_light":
-        result = await LightControl.turn_off_light(light_state)
-    else:
-        return {"success": False, "message": "Intent not supported yet."}
-
-    return {"success": result.success, "message": result.message}
+    return await IntentParser(text).parse()
 
 
 @router.post("/stt")
@@ -108,10 +88,19 @@ async def speech_to_text(
                 "intent_data": intent_data,
                 "message": "Sorry, I didn't understand the command."
             }
-        
-        entity_id = f"light.{intent_data.get('location', '').replace(' ', '_')}"
+
+        entity_id = intent_data.get("entity_id") or (
+            f"light.{intent_data.get('location', '').replace(' ', '_')}" if intent_data.get("location") else None
+        )
+        if not entity_id:
+            return {
+                "success": False,
+                "transcribed_text": transcribed_text,
+                "intent_data": intent_data,
+                "message": "Could not match to a device. Try being more specific (e.g. 'Reece's bedroom light')."
+            }
+
         brightness = intent_data.get("brightness")
-        
         light_state = schemas.LightState(entity_id=entity_id, brightness=brightness)
         
         if intent_data["intent"] == "turn_on_light":
