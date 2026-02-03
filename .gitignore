@@ -10,3 +10,4 @@ venv/
 /models/
 llm/models/
 app/voice/models/*.gguf
+.DS_Store
