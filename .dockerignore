@@ -1,0 +1,32 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+.Python
+.venv
+.venv1
+venv
+env
+*.egg-info
+.eggs
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+
+# IDE and OS
+.idea
+.cursor
+.DS_Store
+*.swp
+*.swo
+
+# Large model files (mount or download at runtime if needed)
+*.gguf
+/models
+llm/

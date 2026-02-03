@@ -73,6 +73,17 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     username: Optional[str] = None
 
+class UserState(BaseModel):
+    state: dict
+
+class UserStateResponse(BaseModel):
+    id: int
+    user_id: int
+    state: dict
+    created_at: datetime
+    updated_at: Optional[datetime] = None 
+
+
 # Home Assistant schemas
 class LightState(BaseModel):
     entity_id: str
@@ -83,6 +94,41 @@ class LightStateResponse(BaseModel):
     message: str
     success: bool
 
+class CoverState(BaseModel):
+    entity_id: str
+    position: int
+class CoverStateResponse(BaseModel):
+    message: str
+    success: bool
+
+
+class FanState(BaseModel):
+    entity_id: str
+    # Optional fields mirror common fan services; all optional so caller can choose.
+    state: Literal["on", "off"]
+    percentage: Optional[int] = None
+    oscillating: Optional[bool] = None
+    direction: Optional[str] = None  # "forward" / "reverse"
+
+
+class FanStateResponse(BaseModel):
+    message: str
+    success: bool
+
+
+class ClimateState(BaseModel):
+    entity_id: str
+    state: Literal["on", "off"]
+    temperature: Optional[float] = None
+    hvac_mode: Optional[str] = None
+    preset_mode: Optional[str] = None
+    fan_mode: Optional[str] = None
+    swing_mode: Optional[str] = None
+    swing_horizontal_mode: Optional[str] = None
+
+class ClimateStateResponse(BaseModel):
+    message: str
+    success: bool
 
 class DeviceInfo(BaseModel):
     entity_id: str

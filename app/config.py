@@ -4,3 +4,5 @@ HEADERS = {
     "Authorization": f"Bearer {ACCESS_TOKEN}",
     "Content-Type": "application/json",
 }
+
+REDIS_URL = "redis://redis:6379/0"

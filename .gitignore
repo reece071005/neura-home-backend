@@ -5,5 +5,8 @@ venv/
 .idea/workspace.xml
 .idea/
 /.idea/
-/models/Phi-4-mini-instruct-Q4_K_M.gguf
-app/voice/models/Phi-4-mini-instruct-Q4_K_M.gguf
+# GGUF / large model files (never commit)
+*.gguf
+/models/
+llm/models/
+app/voice/models/*.gguf

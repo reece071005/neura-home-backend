@@ -5,7 +5,7 @@ import json
 import aiohttp
 from typing import Optional
 from pydantic import BaseModel, ValidationError
-
+from app.voice.llm_client import fetch_intent_from_llm
 class LLMIntentResponse(BaseModel):
     intent: str
     device: Optional[str] = None
@@ -15,7 +15,6 @@ class LLMIntentResponse(BaseModel):
 
 
 class IntentParser:
-    LLM_ENDPOINT = "http://localhost:8080/completion"
 
     known_locations = [
         "kitchen",
@@ -109,28 +108,8 @@ class IntentParser:
 
     # LLM fallback (async + validated)
     async def _call_llm(self) -> Optional[LLMIntentResponse]:
-        payload = {
-            "prompt": self.text,
-            "n_predict": 256,
-        }
+        llm_result = await fetch_intent_from_llm(self.text)
+        if llm_result:
+            return llm_result
+        return None
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(self.LLM_ENDPOINT, json=payload) as resp:
-                    if resp.status != 200:
-                        return None
-
-                    data = await resp.json()
-                    content = data.get("content", "")
-
-                    # LLM MUST return JSON
-                    try:
-                        parsed_json = json.loads(content)
-                        return LLMIntentResponse(**parsed_json)
-                    except (json.JSONDecodeError, ValidationError) as e:
-                        print("LLM output invalid:", e)
-                        return None
-
-        except Exception as e:
-            print("LLM request failed:", e)
-            return None

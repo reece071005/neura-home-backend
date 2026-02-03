@@ -16,3 +16,4 @@ vosk==0.3.44
 sounddevice==0.4.6
 aiohttp
 pydub==0.25.1
+redis==7.1.0

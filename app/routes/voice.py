@@ -5,7 +5,7 @@ import tempfile
 from fastapi import APIRouter, Query, Depends, UploadFile, File, HTTPException
 from app.voice.handler import IntentParser
 from app.voice.recognizer import recognize_from_file
-from app.core.homeassistant import turn_on_light, turn_off_light
+from app.core.homeassistant import LightControl
 from app import models, auth, schemas
 
 router = APIRouter(prefix="/voice", tags=["Voice Assistant"])
@@ -34,9 +34,9 @@ async def voice_command(
     light_state = schemas.LightState(entity_id=entity_id, brightness=brightness)
 
     if intent_data["intent"] == "turn_on_light":
-        result = await turn_on_light(light_state)
+        result = await LightControl.turn_on_light(light_state)
     elif intent_data["intent"] == "turn_off_light":
-        result = await turn_off_light(light_state)
+        result = await LightControl.turn_off_light(light_state)
     else:
         return {"success": False, "message": "Intent not supported yet."}
 
@@ -115,9 +115,9 @@ async def speech_to_text(
         light_state = schemas.LightState(entity_id=entity_id, brightness=brightness)
         
         if intent_data["intent"] == "turn_on_light":
-            result = await turn_on_light(light_state)
+            result = await LightControl.turn_on_light(light_state)
         elif intent_data["intent"] == "turn_off_light":
-            result = await turn_off_light(light_state)
+            result = await LightControl.turn_off_light(light_state)
         else:
             return {
                 "success": False,

@@ -2,7 +2,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from app import models, schemas, auth
 from app.database import get_db
 
@@ -140,3 +140,38 @@ async def delete_user_as_admin(
     await db.commit()
     return None
 
+
+@router.get("/get-user-state/{user_id}", response_model=schemas.UserStateResponse)
+async def get_user_state(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Get the current state of a user for dashboard. If no state exists, returns an empty dictionary."""
+    result = await db.execute(select(models.UserState).where(models.UserState.user_id == user_id))
+    return result.scalar_one_or_none()
+
+@router.post("/set-user-state/{user_id}", response_model=schemas.UserStateResponse)
+async def set_user_state(
+    user_id: int,
+    state: schemas.UserState,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Set the state of a user. Creates a new state row if none exists for this user for dashboard."""
+    result = await db.execute(select(models.UserState).where(models.UserState.user_id == user_id))
+    db_user_state = result.scalar_one_or_none()
+
+    if db_user_state:
+        await db.execute(
+            update(models.UserState).where(models.UserState.user_id == user_id).values(state=state.state)
+        )
+        await db.commit()
+        await db.refresh(db_user_state)
+        return db_user_state
+    else:
+        db_user_state = models.UserState(user_id=user_id, state=state.state)
+        db.add(db_user_state)
+        await db.commit()
+        await db.refresh(db_user_state)
+        return db_user_state

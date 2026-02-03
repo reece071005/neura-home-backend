@@ -4,6 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.database import engine, Base
 from app.routes import auth, users, homecontrollers, voice
+from app.core.redis_init import init_redis, close_redis
+from app.core.cache_management import CacheManagement
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -11,8 +13,11 @@ async def lifespan(app: FastAPI):
     # Run DB migrations / create tables on startup
     async with engine.begin() as conn:  # type: AsyncEngine
         await conn.run_sync(Base.metadata.create_all)
+    # Initialize Redis client (single instance for the whole app)
+    await init_redis()
+    await CacheManagement.update_cache()
     yield
-    # Place for any async shutdown logic if needed
+    await close_redis()
 
 
 app = FastAPI(
