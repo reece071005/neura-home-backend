@@ -92,7 +92,8 @@ async def speech_to_text(
         else:
             return {
                 "success": False,
-                "message": "No command found"
+                "message": "No command found",
+                "transcribed_text": transcribed_text
             }
 
     

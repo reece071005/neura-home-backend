@@ -15,4 +15,4 @@ EMBED_API_URL = os.getenv("EMBED_API_URL", "http://host.docker.internal:11434/ap
 
 # Qdrant vector DB (default: local)
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
-QDRANT_COLLECTION_NAME = "home_commands_v2"
+QDRANT_COLLECTION_NAME = "home_commands_v3"

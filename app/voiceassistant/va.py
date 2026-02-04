@@ -112,4 +112,6 @@ class VoiceAssistant:
             )
             return {"success": result.success, "message": result.message, "response": response_text}
 
+        if domain == "generic":
+            return {"success": True, "message": "Generic command executed", "response": response_text}
         return {"success": False, "message": f"Unknown domain: {domain}", "response": response_text}

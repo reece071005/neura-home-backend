@@ -39,14 +39,32 @@ class CommandsGenerator:
 
         }
 
+        generic_commands = [{"text": "Hello", "output_json": {"intent": "greet", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "Hello, how can I help you?"}}]
+        generic_commands.append({"text": "Goodbye", "output_json": {"intent": "farewell", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "Goodbye, have a great day!"}})
+        generic_commands.append({"text": "Thank you", "output_json": {"intent": "thank you", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "You're welcome!"}})
+        generic_commands.append({"text": "Sorry", "output_json": {"intent": "apology", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "It's okay, I'm here to help!"}})
+        generic_commands.append({"text": "I'm sorry", "output_json": {"intent": "apology", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "It's okay, I'm here to help!"}})
+        generic_commands.append({"text": "I'm bored", "output_json": {"intent": "bored", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "I'm here to help you, what can I do for you?"}})
+        generic_commands.append({"text": "How are you?", "output_json": {"intent": "how are you", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "I'm doing great, thank you!"}})
+        generic_commands.append({"text": "What's up?", "output_json": {"intent": "what's up", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "Everything is going great, thank you!"}})
+        generic_commands.append({"text": "What's your name?", "output_json": {"intent": "what's your name", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "I'm called Neura Home Assistant, your home assistant!"}})
+        generic_commands.append({"text": "What's your favorite color?", "output_json": {"intent": "what's your favorite color", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "My favorite color is blue!"}})
+        generic_commands.append({"text": "What's your favorite food?", "output_json": {"intent": "what's your favorite food", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "My favorite food is pizza!"}})
+        generic_commands.append({"text": "What's your favorite movie?", "output_json": {"intent": "what's your favorite movie", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "My favorite movie is The Matrix!"}})
+        generic_commands.append({"text": "What's your favorite song?", "output_json": {"intent": "what's your favorite song", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "My favorite song is Bohemian Rhapsody!"}})
+        generic_commands.append({"text": "What's your favorite book?", "output_json": {"intent": "what's your favorite book", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "My favorite book is The Lord of the Rings!"}})
+        generic_commands.append({"text": "You are stupid", "output_json": {"intent": "you are stupid", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "You too!"}})
+        generic_commands.append({"text": "You are dumb", "output_json": {"intent": "you are dumb", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "You too!"}})
+       
         hvac_modes = ["heat", "cool", "auto", "fan_only"]
 
         for room in rooms:
+            normalized_room = room.replace('_',' ').title()
             # LIGHTS
             for action in device_types["light"]:
                 if "{brightness}" in action:
                     for b in [25, 50, 75, 100]:
-                        cmd_text = f"{action.format(brightness=b)} in {room}"
+                        cmd_text = f"{action.format(brightness=b)} in {normalized_room}"
                         commands.append({
                             "text": cmd_text,
                             "output_json": {
@@ -54,11 +72,11 @@ class CommandsGenerator:
                                 "domain": "light",
                                 "entity_id": f"light.{room.replace(' ','_')}",
                                 "parameters": {"brightness": b},
-                                "response": f"Setting the {room} lights to {b}%."
+                                "response": f"Setting the {normalized_room} lights to {b}%."
                             }
                         })
                 else:
-                    cmd_text = f"{action} light in {room}"
+                    cmd_text = f"{action} light in {normalized_room}"
                     commands.append({
                         "text": cmd_text,
                         "output_json": {
@@ -66,7 +84,7 @@ class CommandsGenerator:
                             "domain": "light",
                             "entity_id": f"light.{room.replace(' ','_')}",
                             "parameters": {},
-                            "response": f"{action.capitalize()} the {room} lights."
+                            "response": f"{action.capitalize()} the {normalized_room} lights."
                         }
                     })
 
@@ -74,27 +92,27 @@ class CommandsGenerator:
             for action in device_types["cover"]:
                 if "{position}" in action:
                     for p in [25, 50, 75]:
-                        cmd_text = f"{action.format(position=p)} in {room}"
+                        cmd_text = f"{action.format(position=p)} in {normalized_room}"
                         commands.append({
                             "text": cmd_text,
                             "output_json": {
                                 "intent": "set_position",
                                 "domain": "cover",
-                                "entity_id": f"cover.{room.replace(' ','_')}_blind",
+                                "entity_id": f"cover.{room.replace(' ','_')}",
                                 "parameters": {"position": p},
-                                "response": f"Setting the {room} blinds to {p}% open."
+                                "response": f"Setting the {normalized_room} blinds to {p}% open."
                             }
                         })
                 else:
-                    cmd_text = f"{action} blind in {room}"
+                    cmd_text = f"{action} blind in {normalized_room}"
                     commands.append({
                         "text": cmd_text,
                         "output_json": {
                             "intent": action.lower(),
                             "domain": "cover",
-                            "entity_id": f"cover.{room.replace(' ','_')}_blind",
+                            "entity_id": f"cover.{room.replace(' ','_')}",
                             "parameters": {},
-                            "response": f"{action.capitalize()} the {room} blinds."
+                            "response": f"{action.capitalize()} the {normalized_room} blinds."
                         }
                     })
 
@@ -103,7 +121,7 @@ class CommandsGenerator:
                 if "{temperature}" in action:
                     for temp in [20, 22, 25]:
                         mode = random.choice(hvac_modes)
-                        cmd_text = f"{action.format(temperature=temp, mode=mode)} in {room}"
+                        cmd_text = f"{action.format(temperature=temp, mode=mode)} in {normalized_room}"
                         commands.append({
                             "text": cmd_text,
                             "output_json": {
@@ -111,13 +129,13 @@ class CommandsGenerator:
                                 "domain": "climate",
                                 "entity_id": f"climate.{room.replace(' ','_')}",
                                 "parameters": {"temperature": temp, "mode": mode},
-                                "response": f"Setting the {room} AC to {temp}°C on {mode} mode."
+                                "response": f"Setting the {normalized_room} AC to {temp}°C on {mode} mode."
                             }
                         })
                 else:
                     variations = ["ac", "air conditioner"]
                     for variation in variations:
-                        cmd_text = f"{action} {variation} in {room}"
+                        cmd_text = f"{action} {variation} in {normalized_room}"
                         commands.append({
                             "text": cmd_text,
                             "output_json": {
@@ -125,12 +143,12 @@ class CommandsGenerator:
                                 "domain": "climate",
                                 "entity_id": f"climate.{room.replace(' ','_')}",
                                 "parameters": {},
-                                "response": f"{action.capitalize()} the {variation} in {room}."
+                                "response": f"{action.capitalize()} the {variation} in {normalized_room}."
                             }
                         })
             # FANS
             for action in device_types["fan"]:
-                cmd_text = f"{action} fan in {room}"
+                cmd_text = f"{action} fan in {normalized_room}"
                 commands.append({
                     "text": cmd_text,
                     "output_json": {
@@ -138,11 +156,17 @@ class CommandsGenerator:
                         "domain": "fan",
                         "entity_id": f"fan.{room.replace(' ','_')}",
                         "parameters": {},
-                        "response": f"{action.capitalize()} the fan in {room}."
+                        "response": f"{action.capitalize()} the fan in {normalized_room}."
                     }
                 })
 
-        print(f"Generated {len(commands)} commands")
+        # Keep only commands whose entity_id is actually controllable (to avoid confusion)
+        commands = [
+            cmd for cmd in commands
+            if cmd.get("output_json", {}).get("entity_id") in controllable_devices
+        ]
+        commands.extend(generic_commands)
+        print(f"Generated {len(commands)} commands (filtered by controllable_devices)")
         return commands
     
     @staticmethod
@@ -151,11 +175,12 @@ class CommandsGenerator:
         embedding_model = TextEmbedding(
             model_name="BAAI/bge-small-en-v1.5"
         )
-
         VECTOR_SIZE = 384  # bge-small
         client = get_qdrant()
         collections = await client.get_collections()
         existing = [c.name for c in collections.collections]
+
+
 
         if QDRANT_COLLECTION_NAME not in existing:
             await client.recreate_collection(
