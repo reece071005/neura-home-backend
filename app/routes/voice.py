@@ -22,13 +22,14 @@ async def voice_command(
     Example: /voice/command?text=turn on the guest room light
     """
     execute_command = await VoiceAssistant.search_commands(text)
-    if execute_command:
-        return await VoiceAssistant.execute_command(execute_command)
-    else:
-        return {
-            "success": False,
-            "message": "No command found"
-        }
+    return {"success": True, "message": "Command executed", "response": execute_command}
+    # if execute_command:
+    #     return await VoiceAssistant.execute_command(execute_command)
+    # else:
+    #     return {
+    #         "success": False,
+    #         "message": "No command found"
+    #     }
 
 
 @router.post("/stt")
@@ -88,7 +89,13 @@ async def speech_to_text(
         
         execute_command = await VoiceAssistant.search_commands(transcribed_text)
         if execute_command:
-            return await VoiceAssistant.execute_command(execute_command)
+            voice_assistant_response = await VoiceAssistant.execute_command(execute_command)
+            return {
+                "success": voice_assistant_response["success"],
+                "message": voice_assistant_response["message"],
+                "response": voice_assistant_response["response"],
+                "transcribed_text": transcribed_text
+            }
         else:
             return {
                 "success": False,

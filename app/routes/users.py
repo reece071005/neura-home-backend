@@ -141,36 +141,35 @@ async def delete_user_as_admin(
     return None
 
 
-@router.get("/get-user-state/{user_id}", response_model=schemas.UserStateResponse)
+@router.get("/get-user-state", response_model=schemas.UserStateResponse)
 async def get_user_state(
-    user_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
     """Get the current state of a user for dashboard. If no state exists, returns an empty dictionary."""
-    result = await db.execute(select(models.UserState).where(models.UserState.user_id == user_id))
+    result = await db.execute(select(models.UserState).where(models.UserState.user_id == current_user.id))
     return result.scalar_one_or_none()
 
-@router.post("/set-user-state/{user_id}", response_model=schemas.UserStateResponse)
+@router.post("/set-user-state", response_model=schemas.UserStateResponse)
 async def set_user_state(
-    user_id: int,
     state: schemas.UserState,
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
+
     """Set the state of a user. Creates a new state row if none exists for this user for dashboard."""
-    result = await db.execute(select(models.UserState).where(models.UserState.user_id == user_id))
+    result = await db.execute(select(models.UserState).where(models.UserState.user_id == current_user.id))
     db_user_state = result.scalar_one_or_none()
 
     if db_user_state:
         await db.execute(
-            update(models.UserState).where(models.UserState.user_id == user_id).values(state=state.state)
+            update(models.UserState).where(models.UserState.user_id == current_user.id).values(state=state.state)
         )
         await db.commit()
         await db.refresh(db_user_state)
         return db_user_state
     else:
-        db_user_state = models.UserState(user_id=user_id, state=state.state)
+        db_user_state = models.UserState(user_id=current_user.id, state=state.state)
         db.add(db_user_state)
         await db.commit()
         await db.refresh(db_user_state)

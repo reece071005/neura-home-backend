@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models, schemas
 from app.database import get_db
 import os
+from sqlalchemy import select
 
 # Security configuration
 SECRET_KEY = os.getenv("SECRET_KEY", "1a596c46af920d405709d28bc83c5d80491910d531ae34af4e804e853d0458b4")
@@ -62,8 +63,6 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 async def authenticate_user(db: AsyncSession, username: str, password: str):
     """Authenticate a user by username and password (async)."""
-    from sqlalchemy import select
-
     result = await db.execute(
         select(models.User).where(models.User.username == username)
     )
@@ -93,8 +92,6 @@ async def get_current_user(
         token_data = schemas.TokenData(username=username)
     except JWTError:
         raise credentials_exception
-
-    from sqlalchemy import select
 
     result = await db.execute(
         select(models.User).where(models.User.username == token_data.username)

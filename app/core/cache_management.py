@@ -12,6 +12,11 @@ class CacheManagement:
         redis = get_redis()
         devices = await DeviceControl.get_all_devices()
         controllable_devices = await DeviceControl.get_controllable_devices()
+        rooms = []
+        for device in controllable_devices:
+            room = device.split(".")[1]
+            rooms.append(room)
+        await redis.set("rooms", json.dumps(rooms))
         await redis.set("devices", json.dumps(devices))
         await redis.set("controllable_devices", json.dumps(controllable_devices))
         commands = await CommandsGenerator.generate_commands()
@@ -49,6 +54,14 @@ class CommandsGenerator:
         generic_commands.append({"text": "What's up?", "output_json": {"intent": "what's up", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "Everything is going great, thank you!"}})
         generic_commands.append({"text": "What's your name?", "output_json": {"intent": "what's your name", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "I'm called Neura Home Assistant, your home assistant!"}})
         generic_commands.append({"text": "What's your favorite color?", "output_json": {"intent": "what's your favorite color", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "My favorite color is blue!"}})
+        generic_commands.append({"text": "How are you", "output_json": {"intent": "how are you", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "I'm doing great, thank you for asking!"}})
+        generic_commands.append({"text": "How do you feel", "output_json": {"intent": "how do you feel", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "I feel great and ready to help you!"}})
+        generic_commands.append({"text": "How is the weather", "output_json": {"intent": "weather", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "I don't have access to weather data right now, but I can help you control your home devices!"}})
+        generic_commands.append({"text": "What's the weather", "output_json": {"intent": "weather", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "I don't have access to weather data right now, but I can help you control your home devices!"}})
+        generic_commands.append({"text": "How's the weather", "output_json": {"intent": "weather", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "I don't have access to weather data right now, but I can help you control your home devices!"}})
+        generic_commands.append({"text": "Tell me a joke", "output_json": {"intent": "joke", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "Why did the smart home go to therapy? Because it had too many issues!"}})
+        generic_commands.append({"text": "What can you do", "output_json": {"intent": "capabilities", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "I can help you control lights, fans, blinds, and climate systems in your home. Just tell me what you'd like to do!"}})
+        generic_commands.append({"text": "What can you help me with", "output_json": {"intent": "capabilities", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "I can help you control lights, fans, blinds, and climate systems in your home. Just tell me what you'd like to do!"}})
         generic_commands.append({"text": "What's your favorite food?", "output_json": {"intent": "what's your favorite food", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "My favorite food is pizza!"}})
         generic_commands.append({"text": "What's your favorite movie?", "output_json": {"intent": "what's your favorite movie", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "My favorite movie is The Matrix!"}})
         generic_commands.append({"text": "What's your favorite song?", "output_json": {"intent": "what's your favorite song", "domain": "generic", "entity_id": "generic", "parameters": {}, "response": "My favorite song is Bohemian Rhapsody!"}})

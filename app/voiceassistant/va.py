@@ -25,6 +25,7 @@ class VoiceAssistant:
     }
     """
 
+
     @staticmethod
     async def search_commands(query: str) -> dict | None:
         qdrant = get_qdrant()
@@ -35,6 +36,7 @@ class VoiceAssistant:
             query=embedding,
             limit=1,
         )
+        print(hits)
         if not hits.points:
             return None
         return hits.points[0].payload
