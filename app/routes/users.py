@@ -147,8 +147,12 @@ async def get_user_state(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     """Get the current state of a user for dashboard. If no state exists, returns an empty dictionary."""
-    result = await db.execute(select(models.UserState).where(models.UserState.user_id == current_user.id))
-    return result.scalar_one_or_none()
+    try:
+        result = await db.execute(select(models.UserState).where(models.UserState.user_id == current_user.id))
+        return result.scalar_one_or_none()
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User state not found")
+        return None
 
 @router.post("/set-user-state", response_model=schemas.UserStateResponse)
 async def set_user_state(
@@ -174,3 +178,12 @@ async def set_user_state(
         await db.commit()
         await db.refresh(db_user_state)
         return db_user_state
+
+
+@router.get("/get-user-profile", response_model=schemas.UserResponse)
+async def get_user_profile(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Get the profile of the current user."""
+    return current_user
