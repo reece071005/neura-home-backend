@@ -2,7 +2,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, delete
 from app import models, schemas, auth
 from app.database import get_db
 
@@ -114,7 +114,7 @@ async def change_user_email(
     await db.refresh(db_user)
     return db_user
 
-@router.delete("/delete-user/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/delete-user/{user_id}", status_code=status.HTTP_200_OK)
 async def delete_user_as_admin(
         user_id: int,
         db: AsyncSession = Depends(get_db),
@@ -136,9 +136,14 @@ async def delete_user_as_admin(
             detail="Cannot delete admin users",
         )
 
+    # Delete related user state rows first to satisfy FK constraints
+    await db.execute(
+        delete(models.UserState).where(models.UserState.user_id == user_id)
+    )
+
     await db.delete(db_user)
     await db.commit()
-    return None
+    return {"message": "User deleted successfully"}
 
 
 @router.get("/get-user-state", response_model=schemas.UserStateResponse)
