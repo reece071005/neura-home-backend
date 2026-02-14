@@ -1,159 +1,124 @@
+from __future__ import annotations
+
+import os
+from typing import Any, Dict, Optional
+
+import joblib
 import pandas as pd
-from collections import defaultdict, Counter
-from typing import Dict, Any, Optional
 
 from app.ai.friend_dataset import FriendInfluxDataset
 
 
+ARTIFACT_DIR = os.getenv("AI_ARTIFACT_DIR", "app/ai/artifacts/rooms")
+
+
 class RoomTrainer:
-    """
-    Trains a room profile from friend's InfluxDB (Home Assistant integration schema).
-
-    It splits behavior by domain (light / climate / cover / fan ...)
-
-    Output example:
-
-    {
-      "trained": true,
-      "room": "guest_room",
-      "domains": {
-        "light": {
-          "on_probability": {...},
-          "avg_brightness": {...}
-        },
-        "climate": {
-          "on_probability": {...},
-          "avg_temperature": {...},
-          "mode_hvac": {...}
-        }
-      }
-    }
-    """
 
     @staticmethod
-    def _mode(values: list[str]) -> Optional[str]:
-        if not values:
-            return None
-        c = Counter(values)
-        return c.most_common(1)[0][0]
-
-    @staticmethod
-    def train_room(room: str, days: int = 60) -> Dict[str, Any]:
+    def train_room(*, room: str, days: int = 60) -> Dict[str, Any]:
         df = FriendInfluxDataset.fetch_room_state_df(room=room, days=days)
 
         if df.empty:
-            return {"trained": False, "message": "No data found."}
+            return {"trained": False, "room": room, "days": days, "message": "No data found."}
 
-        df["hour"] = pd.to_datetime(df["time"]).dt.hour
+        df["hour"] = df["time"].dt.hour
+        df["date"] = df["time"].dt.date
+        df["weekday_index"] = df["time"].dt.weekday
+        df["is_weekend"] = df["weekday_index"] >= 5
 
-        domains_result: Dict[str, Any] = {}
-
-        # Get all domains for this room
         domains = sorted(df["domain"].dropna().unique().tolist())
+        domain_profiles: Dict[str, Any] = {}
 
         for domain in domains:
-            domain_df = df[df["domain"] == domain].copy()
-            if domain_df.empty:
+            sub = df[df["domain"] == domain].copy()
+            if sub.empty:
                 continue
 
-            domain_profile: Dict[str, Any] = {}
-
-            # --------------------------
-            # ON probability per hour
-            # --------------------------
-            state_df = domain_df[domain_df["_field"] == "state"].copy()
-
-            if not state_df.empty:
-                state_df["time"] = pd.to_datetime(state_df["time"])
-                state_df = state_df.sort_values("time")
-
-                state_df["_value"] = state_df["_value"].astype(str).str.lower()
-
-                # Detect transitions
-                state_df["prev_state"] = state_df["_value"].shift(1)
-                state_df["turn_on_event"] = (
-                        (state_df["_value"] == "on") &
-                        (state_df["prev_state"] != "on")
-                )
-
-                state_df["hour"] = state_df["time"].dt.hour
-                state_df["date"] = state_df["time"].dt.date
-
-                # Count unique days with turn-on per hour
-                turn_on_events = state_df[state_df["turn_on_event"]]
-
-                grouped = (
-                    turn_on_events.groupby(["date", "hour"])
-                    .size()
-                    .reset_index(name="count")
-                )
-
-                total_days = state_df["date"].nunique()
-
-                on_probability = {}
-                for hour in range(24):
-                    days_with_event = grouped[grouped["hour"] == hour]["date"].nunique()
-                    prob = days_with_event / total_days if total_days > 0 else 0
-                    on_probability[str(hour)] = round(prob, 4)
-
-                domain_profile["turn_on_probability"] = on_probability
-
-            # --------------------------
-            # LIGHT extras
-            # --------------------------
-            if domain == "light":
-                bright_df = domain_df[domain_df["_field"] == "brightness"]
-
-                avg_brightness = {}
-                for hour in range(24):
-                    sub = bright_df[bright_df["hour"] == hour]
-                    if sub.empty:
-                        avg_brightness[str(hour)] = None
-                    else:
-                        # HA brightness usually 0-255
-                        try:
-                            avg_brightness[str(hour)] = round(float(sub["_value"].astype(float).mean()), 2)
-                        except Exception:
-                            avg_brightness[str(hour)] = None
-
-                domain_profile["avg_brightness"] = avg_brightness
-
-            # --------------------------
-            # CLIMATE extras
-            # --------------------------
-            if domain == "climate":
-                # Temperature can be in different fields
-                temp_df = domain_df[domain_df["_field"].isin(["temperature", "current_temperature"])]
-                hvac_df = domain_df[domain_df["_field"] == "hvac_mode_str"]
-
-                avg_temperature = {}
-                for hour in range(24):
-                    sub = temp_df[temp_df["hour"] == hour]
-                    if sub.empty:
-                        avg_temperature[str(hour)] = None
-                    else:
-                        try:
-                            avg_temperature[str(hour)] = round(float(sub["_value"].astype(float).mean()), 2)
-                        except Exception:
-                            avg_temperature[str(hour)] = None
-
-                mode_hvac = {}
-                for hour in range(24):
-                    sub = hvac_df[hvac_df["hour"] == hour]
-                    if sub.empty:
-                        mode_hvac[str(hour)] = None
-                    else:
-                        vals = [str(v).lower() for v in sub["_value"].tolist() if v is not None]
-                        mode_hvac[str(hour)] = RoomTrainer._mode(vals)
-
-                domain_profile["avg_temperature"] = avg_temperature
-                domain_profile["mode_hvac"] = mode_hvac
-
-            domains_result[domain] = domain_profile
+            profile = RoomTrainer._train_domain(room, domain, days, sub)
+            domain_profiles[domain] = profile
+            RoomTrainer._save_profile(room, domain, profile)
 
         return {
             "trained": True,
             "room": room,
             "days": days,
-            "domains": domains_result,
+            "domains": domain_profiles,
         }
+
+    @staticmethod
+    def _train_domain(room: str, domain: str, days: int, df: pd.DataFrame) -> Dict[str, Any]:
+
+        state_df = df[df["field"] == "state"].copy()
+        state_df["value"] = state_df["value"].astype(str).str.lower()
+
+        weekday_df = state_df[state_df["is_weekend"] == False]
+        weekend_df = state_df[state_df["is_weekend"] == True]
+
+        profile = {
+            "room": room,
+            "domain": domain,
+            "days": days,
+            "weekday": RoomTrainer._compute_probabilities(weekday_df),
+            "weekend": RoomTrainer._compute_probabilities(weekend_df),
+        }
+
+        # Light brightness handling
+        if domain == "light":
+            bright_df = df[df["field"] == "brightness"].copy()
+            bright_df["brightness"] = pd.to_numeric(bright_df["value"], errors="coerce")
+            bright_df = bright_df.dropna(subset=["brightness"])
+
+            profile["weekday"]["avg_brightness"] = RoomTrainer._compute_avg_brightness(
+                bright_df[bright_df["is_weekend"] == False]
+            )
+
+            profile["weekend"]["avg_brightness"] = RoomTrainer._compute_avg_brightness(
+                bright_df[bright_df["is_weekend"] == True]
+            )
+
+        return profile
+
+    @staticmethod
+    def _compute_probabilities(df: pd.DataFrame) -> Dict[str, Any]:
+
+        if df.empty:
+            return {
+                "active_days": 0,
+                "turn_on_probability": {h: 0.0 for h in range(24)},
+            }
+
+        active_days = df["date"].nunique()
+
+        on_df = df[df["value"] == "on"]
+
+        probs: Dict[int, float] = {}
+        for h in range(24):
+            days_on_this_hour = on_df[on_df["hour"] == h]["date"].nunique()
+            probs[h] = round(days_on_this_hour / active_days, 4)
+
+        return {
+            "active_days": int(active_days),
+            "turn_on_probability": probs,
+        }
+
+    @staticmethod
+    def _compute_avg_brightness(df: pd.DataFrame) -> Dict[int, float]:
+        result: Dict[int, float] = {}
+        for h in range(24):
+            vals = df[df["hour"] == h]["brightness"]
+            if not vals.empty:
+                result[h] = float(round(vals.mean(), 2))
+        return result
+
+    @staticmethod
+    def _save_profile(room: str, domain: str, profile: Dict[str, Any]) -> None:
+        os.makedirs(ARTIFACT_DIR, exist_ok=True)
+        path = os.path.join(ARTIFACT_DIR, f"{room}__{domain}.joblib")
+        joblib.dump(profile, path)
+
+    @staticmethod
+    def load_profile(room: str, domain: str) -> Optional[Dict[str, Any]]:
+        path = os.path.join(ARTIFACT_DIR, f"{room}__{domain}.joblib")
+        if not os.path.exists(path):
+            return None
+        return joblib.load(path)
