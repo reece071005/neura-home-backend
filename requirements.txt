@@ -19,3 +19,8 @@ pydub==0.25.1
 redis==7.1.0
 qdrant-client==1.16.2
 fastembed==0.7.4
+influxdb-client
+pandas
+numpy
+scikit-learn
+joblib

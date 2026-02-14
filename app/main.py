@@ -8,6 +8,10 @@ from app.core.redis_init import init_redis, close_redis
 from app.core.cache_management import CacheManagement
 from app.core.qdrant_init import init_qdrant, close_qdrant
 
+from app.core.influxdb_init import init_influx, close_influx
+from app.routes import influx as influx_routes
+from app.routes import ai as ai_routes
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context to handle startup/shutdown tasks."""
@@ -18,7 +22,9 @@ async def lifespan(app: FastAPI):
     await init_redis()
     await init_qdrant()
     await CacheManagement.update_cache()
+    init_influx()
     yield
+    close_influx()
     await close_redis()
     await close_qdrant()
 
@@ -33,6 +39,9 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(homecontrollers.router)
 app.include_router(voice.router)
+
+app.include_router(influx_routes.router)
+app.include_router(ai_routes.router)
 @app.get("/")
 async def read_root():
     return {"message": "Welcome to Neura API"}
