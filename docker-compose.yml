@@ -55,6 +55,8 @@ services:
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-this-in-production}
 
       # InfluxDB 2.x (API -> influxdb container)
+      INFLUX_SOURCE: local
+      INFLUX_READONLY: "false"
       INFLUX_URL: http://influxdb:8086
       INFLUX_TOKEN: neura-super-token-change-later
       INFLUX_ORG: neura

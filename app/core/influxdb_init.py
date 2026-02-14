@@ -5,9 +5,11 @@ from influxdb_client import InfluxDBClient
 from influxdb_client.client.write_api import SYNCHRONOUS
 
 
-class InfluxClient:
-    """Singleton InfluxDB 2.x client."""
+# ============================================
+# LOCAL INFLUX CLIENT (YOUR SYSTEM)
+# ============================================
 
+class InfluxClient:
     _client: Optional[InfluxDBClient] = None
 
     @classmethod
@@ -33,13 +35,11 @@ class InfluxClient:
 
     @classmethod
     def get_write_api(cls):
-        client = cls.get_client()
-        return client.write_api(write_options=SYNCHRONOUS)
+        return cls.get_client().write_api(write_options=SYNCHRONOUS)
 
     @classmethod
     def get_query_api(cls):
-        client = cls.get_client()
-        return client.query_api()
+        return cls.get_client().query_api()
 
     @classmethod
     def close_influx(cls) -> None:
@@ -48,11 +48,43 @@ class InfluxClient:
             cls._client = None
 
 
-def init_influx() -> InfluxDBClient:
+# ============================================
+# FRIEND INFLUX CLIENT (READ ONLY)
+# ============================================
+
+class FriendInfluxClient:
+    _client: Optional[InfluxDBClient] = None
+
+    @classmethod
+    def get_client(cls) -> InfluxDBClient:
+        if cls._client is not None:
+            return cls._client
+
+        url = os.getenv("FRIEND_INFLUX_URL")
+        token = os.getenv("FRIEND_INFLUX_TOKEN")
+        org = os.getenv("FRIEND_INFLUX_ORG")
+
+        if not all([url, token, org]):
+            raise RuntimeError("Friend Influx environment variables are missing.")
+
+        cls._client = InfluxDBClient(url=url, token=token, org=org)
+        return cls._client
+
+    @classmethod
+    def get_query_api(cls):
+        return cls.get_client().query_api()
+
+
+# ============================================
+# BACKWARD COMPATIBILITY FUNCTIONS
+# (So your main.py does not break)
+# ============================================
+
+def init_influx():
     return InfluxClient.init_influx()
 
 
-def get_influx_client() -> InfluxDBClient:
+def get_influx_client():
     return InfluxClient.get_client()
 
 
@@ -64,5 +96,5 @@ def get_influx_query_api():
     return InfluxClient.get_query_api()
 
 
-def close_influx() -> None:
+def close_influx():
     InfluxClient.close_influx()
