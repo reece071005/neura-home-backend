@@ -1,23 +1,28 @@
 from __future__ import annotations
 
-from datetime import datetime
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query
 from app import auth, models
 
 from app.ai.room_trainer import RoomTrainer
+from app.ai.timeseries_builder import BuildConfig
+from app.ai.xgb_light_trainer import XGBLightTrainer
+from app.ai.predictor import Predictor
 
 
 router = APIRouter(prefix="/ai", tags=["AI"])
 
 
+# ============================================
+# OLD (probability profile baseline)
+# ============================================
+
 @router.post("/train-room")
 async def train_room(
-    room: str = Query(..., description="Room entity_id like guest_room, kitchen, reece_room"),
+    room: str = Query(..., description="Room entity_id like living_room"),
     days: int = Query(60, ge=1, le=365),
     current_admin: models.User = Depends(auth.get_current_admin_user),
 ):
     return RoomTrainer.train_room(room=room, days=days)
-
 
 
 @router.get("/predict-room")
@@ -27,6 +32,7 @@ async def predict_room(
     threshold: float = Query(0.25, ge=0.0, le=1.0),
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
+    from datetime import datetime
 
     now = datetime.utcnow()
     is_weekend = now.weekday() >= 5
@@ -68,3 +74,26 @@ async def predict_room(
         "actions": actions,
     }
 
+
+# ============================================
+# NEW (real ML using XGBoost)
+# ============================================
+
+@router.post("/train-room-xgb")
+async def train_room_xgb_light(
+    room: str = Query(..., description="Room entity_id like living_room"),
+    days: int = Query(60, ge=7, le=365),
+    horizon_minutes: int = Query(15, ge=5, le=60),
+    current_admin: models.User = Depends(auth.get_current_admin_user),
+):
+    cfg = BuildConfig(freq="5min", horizon_minutes=horizon_minutes)
+    return XGBLightTrainer.train_room_light(room=room, days=days, cfg=cfg)
+
+
+@router.get("/predict-room-xgb")
+async def predict_room_xgb_light(
+    room: str = Query(...),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    cfg = BuildConfig(freq="5min", horizon_minutes=15)
+    return Predictor.predict_room_light_next_15m(room=room, days_context=7, cfg=cfg)

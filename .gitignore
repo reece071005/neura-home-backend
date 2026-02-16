@@ -11,3 +11,15 @@ venv/
 llm/models/
 app/voice/models/*.gguf
 .DS_Store
+
+
+# =========================
+# AI Model Artifacts
+# =========================
+app/ai/artifacts/
+app/ai/artifacts/**
+*.joblib
+*.pkl
+
+# XGBoost cache files
+*.json

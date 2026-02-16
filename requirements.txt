@@ -24,3 +24,4 @@ pandas
 numpy
 scikit-learn
 joblib
+xgboost==2.0.3
