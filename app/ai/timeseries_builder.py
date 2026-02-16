@@ -24,11 +24,108 @@ def _encode_on_off(v: object) -> Optional[int]:
         return 0
     return None
 
+def _encode_hvac_action(v: object) -> Optional[int]:
+    """
+    Binary encoding:
+      1 = heating/cooling (active)
+      0 = idle/fan/off/unknown
+    """
+    if v is None:
+        return None
+    s = str(v).strip().lower()
+    if s in {"heating", "cooling"}:
+        return 1
+    if s in {"idle", "fan", "off", "unknown", "none", ""}:
+        return 0
+    # treat anything else as inactive for now
+    return 0
+
 
 class TimeSeriesBuilder:
     """
     Converts Influx event-based records into a fixed-interval time series dataset.
     """
+
+    @staticmethod
+    def build_climate_classification_dataset(
+        df_ts: pd.DataFrame,
+        *,
+        cfg: BuildConfig = BuildConfig(),
+    ) -> pd.DataFrame:
+        """
+        Predict whether climate will be ACTIVE in the future.
+        ACTIVE means hvac_action_str in {heating, cooling}
+        """
+        if df_ts.empty:
+            return pd.DataFrame()
+
+        df = df_ts.copy()
+        df["time"] = pd.to_datetime(df["time"], utc=True)
+        df = df.sort_values("time").reset_index(drop=True)
+
+        # Required columns
+        if "hvac_action_str" not in df.columns:
+            return pd.DataFrame()
+
+        df["hvac_active"] = df["hvac_action_str"].apply(_encode_hvac_action)
+
+        # Temperatures
+        for col in ["current_temperature", "temperature"]:
+            if col not in df.columns:
+                df[col] = None
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        df["current_temperature"] = df["current_temperature"].ffill()
+        df["temperature"] = df["temperature"].ffill()
+
+        # If still NaN, fill with 0 (not ideal but prevents crashes)
+        df["current_temperature"] = df["current_temperature"].fillna(0.0)
+        df["temperature"] = df["temperature"].fillna(0.0)
+
+        df["temp_diff"] = df["temperature"] - df["current_temperature"]
+
+        # Time features
+        df["hour"] = df["time"].dt.hour
+        df["weekday"] = df["time"].dt.weekday
+        df["is_weekend"] = (df["weekday"] >= 5).astype(int)
+
+        # Lag features
+        df["hvac_active_lag1"] = df["hvac_active"].shift(1)
+        df["temp_diff_lag1"] = df["temp_diff"].shift(1)
+
+        # Rolling mean of current temperature (30 min)
+        df["current_temp_roll_mean_30m"] = df["current_temperature"].rolling(window=6, min_periods=1).mean()
+
+        # Target
+        step_minutes = int(pd.Timedelta(cfg.freq).total_seconds() // 60)
+        horizon_steps = max(1, cfg.horizon_minutes // step_minutes)
+
+        df["y_hvac_active_future"] = df["hvac_active"].shift(-horizon_steps)
+
+        df = df.dropna(subset=["hvac_active", "hvac_active_lag1", "y_hvac_active_future"])
+        df["y_hvac_active_future"] = df["y_hvac_active_future"].astype(int)
+
+        out = df[
+            [
+                "time",
+                "entity_id",
+                "domain",
+                "hour",
+                "weekday",
+                "is_weekend",
+                "hvac_active",
+                "hvac_active_lag1",
+                "current_temperature",
+                "temperature",
+                "temp_diff",
+                "temp_diff_lag1",
+                "current_temp_roll_mean_30m",
+                "y_hvac_active_future",
+            ]
+        ].copy()
+
+        return out
+
 
     @staticmethod
     def pivot_events_to_wide(df_long: pd.DataFrame) -> pd.DataFrame:
@@ -68,43 +165,27 @@ class TimeSeriesBuilder:
 
     @staticmethod
     def resample_room_domain(
-        df_wide: pd.DataFrame,
-        *,
-        cfg: BuildConfig = BuildConfig(),
+            df_wide: pd.DataFrame,
+            *,
+            cfg: BuildConfig = BuildConfig(),
     ) -> pd.DataFrame:
-        """
-        Resample to a fixed time grid.
-        - Forward-fill state + brightness.
-        """
         if df_wide.empty:
             return pd.DataFrame()
 
         df = df_wide.copy()
         df["time"] = pd.to_datetime(df["time"], utc=True)
 
-        # Expect only one room/domain in this df.
         domain = str(df["domain"].iloc[0])
         entity_id = str(df["entity_id"].iloc[0])
 
         df = df.set_index("time").sort_index()
 
-        # Keep only fields we care about for light.
-        keep_cols = []
-        for c in ["state", "brightness"]:
-            if c in df.columns:
-                keep_cols.append(c)
-
-        df = df[keep_cols]
-
-        # Resample to fixed frequency.
+        # Resample
         df = df.resample(cfg.freq).last()
 
-        # Forward fill state + brightness
-        if "state" in df.columns:
-            df["state"] = df["state"].ffill()
-        if "brightness" in df.columns:
-            df["brightness"] = pd.to_numeric(df["brightness"], errors="coerce")
-            df["brightness"] = df["brightness"].ffill()
+        # Forward fill ALL useful columns
+        for col in df.columns:
+            df[col] = df[col].ffill()
 
         df = df.reset_index()
         df["domain"] = domain
@@ -179,3 +260,6 @@ class TimeSeriesBuilder:
         ].copy()
 
         return out
+
+
+
