@@ -8,6 +8,7 @@ from app.ai.timeseries_builder import BuildConfig
 from app.ai.xgb_light_trainer import XGBLightTrainer
 from app.ai.predictor import Predictor
 from app.ai.xgb_climate_trainer import XGBClimateTrainer
+from app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
 
 
 router = APIRouter(prefix="/ai", tags=["AI"])
@@ -118,3 +119,23 @@ async def predict_room_xgb_climate(
 ):
     cfg = BuildConfig(freq="5min", horizon_minutes=15)
     return Predictor.predict_room_climate_active_next_15m(room=room, days_context=7, cfg=cfg)
+
+@router.post("/train-climate-temp-xgb")
+async def train_room_xgb_climate_temp(
+    room: str = Query(...),
+    days: int = Query(60, ge=7, le=365),
+    horizon_minutes: int = Query(15, ge=5, le=60),
+    current_admin: models.User = Depends(auth.get_current_admin_user),
+):
+    cfg = BuildConfig(freq="5min", horizon_minutes=horizon_minutes)
+    return XGBClimateTempTrainer.train_room_climate_setpoint(room=room, days=days, cfg=cfg)
+
+
+@router.get("/predict-climate-temp-xgb")
+async def predict_room_xgb_climate_temp(
+    room: str = Query(...),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    cfg = BuildConfig(freq="5min", horizon_minutes=15)
+    return Predictor.predict_room_climate_setpoint_next_15m(room=room, days_context=7, cfg=cfg)
+

@@ -261,5 +261,81 @@ class TimeSeriesBuilder:
 
         return out
 
+    @staticmethod
+    def build_climate_temperature_regression_dataset(
+        df_ts: pd.DataFrame,
+        *,
+        cfg: BuildConfig = BuildConfig(),
+    ) -> pd.DataFrame:
+        """
+        Predict the future climate setpoint temperature.
+        y = temperature at t + horizon
+        """
+        if df_ts.empty:
+            return pd.DataFrame()
+
+        df = df_ts.copy()
+        df["time"] = pd.to_datetime(df["time"], utc=True)
+        df = df.sort_values("time").reset_index(drop=True)
+
+        # Ensure numeric
+        for col in ["current_temperature", "temperature"]:
+            if col not in df.columns:
+                df[col] = None
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        df["current_temperature"] = df["current_temperature"].ffill()
+        df["temperature"] = df["temperature"].ffill()
+
+        # Drop if still missing
+        df = df.dropna(subset=["current_temperature", "temperature"])
+        if df.empty:
+            return pd.DataFrame()
+
+        df["temp_diff"] = df["temperature"] - df["current_temperature"]
+
+        # Time features
+        df["hour"] = df["time"].dt.hour
+        df["weekday"] = df["time"].dt.weekday
+        df["is_weekend"] = (df["weekday"] >= 5).astype(int)
+
+        # Lag features
+        df["setpoint_lag1"] = df["temperature"].shift(1)
+        df["current_temp_lag1"] = df["current_temperature"].shift(1)
+        df["temp_diff_lag1"] = df["temp_diff"].shift(1)
+
+        # Rolling mean temperature (30 min)
+        df["current_temp_roll_mean_30m"] = df["current_temperature"].rolling(window=6, min_periods=1).mean()
+
+        # Target
+        step_minutes = int(pd.Timedelta(cfg.freq).total_seconds() // 60)
+        horizon_steps = max(1, cfg.horizon_minutes // step_minutes)
+
+        df["y_setpoint_future"] = df["temperature"].shift(-horizon_steps)
+
+        df = df.dropna(subset=["setpoint_lag1", "y_setpoint_future"])
+
+        out = df[
+            [
+                "time",
+                "entity_id",
+                "domain",
+                "hour",
+                "weekday",
+                "is_weekend",
+                "current_temperature",
+                "temperature",
+                "temp_diff",
+                "setpoint_lag1",
+                "current_temp_lag1",
+                "temp_diff_lag1",
+                "current_temp_roll_mean_30m",
+                "y_setpoint_future",
+            ]
+        ].copy()
+
+        return out
+
+
 
 
