@@ -10,6 +10,7 @@ from app.ai.timeseries_builder import BuildConfig, TimeSeriesBuilder
 from app.ai.xgb_light_trainer import XGBLightTrainer
 from app.ai.xgb_climate_trainer import XGBClimateTrainer
 from app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
+from app.ai.xgb_cover_trainer import XGBCoverTrainer
 
 
 class Predictor:
@@ -151,5 +152,69 @@ class Predictor:
             "prediction_horizon_minutes": artifact.cfg.horizon_minutes,
             "predicted_setpoint_celsius": round(pred_setpoint, 2),
         }
+
+    @staticmethod
+    def predict_cover_position_next_15m(
+        *,
+        entity_id: str,
+        days_context: int = 7,
+        cfg: BuildConfig = BuildConfig(),
+    ) -> Dict[str, Any]:
+
+        artifact = XGBCoverTrainer.load_artifact(entity_id)
+        if not artifact:
+            return {"ok": False, "entity_id": entity_id, "message": "Cover model not trained. Run /ai/train-cover-xgb first."}
+
+        df_long = FriendInfluxDataset.fetch_room_state_df(room=entity_id, days=days_context)
+        df_long = df_long[df_long["domain"] == "cover"].copy()
+        if df_long.empty:
+            return {"ok": False, "entity_id": entity_id, "message": "No recent cover data."}
+
+        df_wide = TimeSeriesBuilder.pivot_events_to_wide(df_long)
+        df_ts = TimeSeriesBuilder.resample_room_domain(df_wide, cfg=cfg)
+
+        if "current_position" not in df_ts.columns:
+            return {"ok": False, "entity_id": entity_id, "message": "current_position not found."}
+
+        df_ts["current_position"] = pd.to_numeric(df_ts["current_position"], errors="coerce").ffill()
+        df_ts = df_ts.dropna(subset=["current_position"])
+        if df_ts.empty:
+            return {"ok": False, "entity_id": entity_id, "message": "No valid position data."}
+
+        # Feature engineering (must match trainer)
+        df_ts["hour"] = df_ts["time"].dt.hour
+        df_ts["weekday"] = df_ts["time"].dt.weekday
+        df_ts["is_weekend"] = (df_ts["weekday"] >= 5).astype(int)
+        df_ts["position_lag1"] = df_ts["current_position"].shift(1)
+        df_ts["position_roll_mean_30m"] = df_ts["current_position"].rolling(window=6, min_periods=1).mean()
+
+        df_ts = df_ts.dropna(subset=["position_lag1"])
+        if df_ts.empty:
+            return {"ok": False, "entity_id": entity_id, "message": "Not enough history to form lag features."}
+
+        last = df_ts.iloc[-1]
+        X = pd.DataFrame([last[artifact.feature_columns].to_dict()])
+
+        pred_pos = float(artifact.model.predict(X)[0])
+        pred_pos = max(0.0, min(100.0, pred_pos))  # clamp to 0..100
+
+        now = datetime.now(timezone.utc)
+
+        # Suggestion rule: only suggest if change is meaningful
+        current_pos = float(last["current_position"])
+        delta = pred_pos - current_pos
+
+        return {
+            "ok": True,
+            "entity_id": entity_id,
+            "domain": "cover",
+            "timestamp_utc": now.isoformat(),
+            "prediction_horizon_minutes": artifact.cfg.horizon_minutes,
+            "current_position": round(current_pos, 1),
+            "predicted_position": round(pred_pos, 1),
+            "delta": round(delta, 1),
+            "suggest_change": bool(abs(delta) >= 15.0),  # only if >= 15% change
+        }
+
 
 

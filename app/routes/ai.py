@@ -9,6 +9,7 @@ from app.ai.xgb_light_trainer import XGBLightTrainer
 from app.ai.predictor import Predictor
 from app.ai.xgb_climate_trainer import XGBClimateTrainer
 from app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
+from app.ai.xgb_cover_trainer import XGBCoverTrainer
 
 
 router = APIRouter(prefix="/ai", tags=["AI"])
@@ -139,3 +140,22 @@ async def predict_room_xgb_climate_temp(
     cfg = BuildConfig(freq="5min", horizon_minutes=15)
     return Predictor.predict_room_climate_setpoint_next_15m(room=room, days_context=7, cfg=cfg)
 
+
+@router.post("/train-cover-xgb")
+async def train_cover_xgb(
+    entity_id: str = Query(..., description="Cover entity_id like reece_s_window_blind"),
+    days: int = Query(60, ge=7, le=365),
+    horizon_minutes: int = Query(15, ge=5, le=60),
+    current_admin: models.User = Depends(auth.get_current_admin_user),
+):
+    cfg = BuildConfig(freq="5min", horizon_minutes=horizon_minutes)
+    return XGBCoverTrainer.train_cover_position(entity_id=entity_id, days=days, cfg=cfg)
+
+
+@router.get("/predict-cover-xgb")
+async def predict_cover_xgb(
+    entity_id: str = Query(...),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    cfg = BuildConfig(freq="5min", horizon_minutes=15)
+    return Predictor.predict_cover_position_next_15m(entity_id=entity_id, days_context=7, cfg=cfg)
