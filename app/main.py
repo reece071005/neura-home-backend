@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.database import engine, Base
-from app.routes import auth, users, homecontrollers, voice
+from app.routes import auth, users, homecontrollers, voice, userfaces
 from app.core.redis_init import init_redis, close_redis
 from app.core.cache_management import CacheManagement
 from app.core.qdrant_init import init_qdrant, close_qdrant
@@ -33,6 +33,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(homecontrollers.router)
 app.include_router(voice.router)
+app.include_router(userfaces.router)
 @app.get("/")
 async def read_root():
     return {"message": "Welcome to Neura API"}

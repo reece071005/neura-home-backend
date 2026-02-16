@@ -5,6 +5,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from app import models, schemas, auth
 from app.database import get_db
+from pathlib import Path
+from app.routes import userfaces as userfaces_routes
 
 router = APIRouter(prefix="/auth/users", tags=["users"])
 
@@ -140,6 +142,19 @@ async def delete_user_as_admin(
     await db.execute(
         delete(models.UserState).where(models.UserState.user_id == user_id)
     )
+
+    # Delete related userface image (if any) from disk
+    username = db_user.username
+    project_root = Path(__file__).resolve().parents[2]
+    residents_dir = project_root / "residents"
+    residents_dir.mkdir(parents=True, exist_ok=True)
+    for ext in [".jpg", ".jpeg", ".png", ".webp"]:
+        p = residents_dir / f"{username}{ext}"
+        try:
+            if p.exists():
+                p.unlink()
+        except OSError:
+            continue
 
     await db.delete(db_user)
     await db.commit()

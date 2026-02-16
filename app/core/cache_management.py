@@ -32,7 +32,33 @@ class CommandsGenerator:
         print(controllable_devices)
         rooms = []
         for device in controllable_devices:
-            rooms.append(device.split(".")[1])
+            room = device.split(".")[1]
+            rooms.append(room)
+
+        # Map noisy/misspelled tokens in entity_ids to nice human-facing names.
+        # This affects ONLY the generated command text; the underlying entity_id
+        # is kept exactly as-is so Home Assistant continues to work.
+        NAME_CASES = {
+            "reece": "Reece's",
+            "recees": "Reece's",
+            "recess": "Reece's",
+            "rece": "Reece's",
+            "reece's": "Reece's",
+            "jake": "Jake's",
+            "jakes": "Jake's",
+            "jake's": "Jake's",
+        }
+
+        def normalize_room(room: str) -> str:
+            """
+            Convert an entity_id suffix like 'recees_bedroom' into a
+            human-friendly room name like "Reece's Bedroom", using NAME_CASES
+            to correct common spelling variants while leaving the original
+            entity_id untouched.
+            """
+            parts = room.replace(".", "_").split("_")
+            nice_parts = [NAME_CASES.get(p.lower(), p.title()) for p in parts if p]
+            return " ".join(nice_parts)
 
         commands = []
 
@@ -72,7 +98,7 @@ class CommandsGenerator:
         hvac_modes = ["heat", "cool", "auto", "fan_only"]
 
         for room in rooms:
-            normalized_room = room.replace('_',' ').title()
+            normalized_room = normalize_room(room)
             # LIGHTS
             for action in device_types["light"]:
                 if "{brightness}" in action:

@@ -273,9 +273,20 @@ class DeviceControl:
         devices = await DeviceControl.get_all_devices()
         for device in devices:
             if device.get("kind") in ["light", "fan", "cover", "climate"]:
-                if 'spot' in device.get("entity_id"):
+                entity_id = device.get("entity_id", "")
+                name = device.get("name", "")
+
+                # Skip spotlights
+                if "spot" in entity_id:
                     continue
-                controllable_devices.append(device.get("entity_id"))
+                # Skip numbered variants like light.kitchen_1, fan.living_room_2
+                if any(ch.isdigit() for ch in entity_id):
+                    continue
+                # Skip lights that are actually fan lights (e.g. "Ceiling Fan Light")
+                if "light" in entity_id and "fan" in name.lower():
+                    continue
+
+                controllable_devices.append(entity_id)
         return controllable_devices
 
 

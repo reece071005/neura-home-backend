@@ -3,7 +3,6 @@
 import os
 import tempfile
 from fastapi import APIRouter, Query, Depends, UploadFile, File, HTTPException
-from app.voice.handler import IntentParser
 from app.voice.recognizer import recognize_from_file
 from app.core.homeassistant import LightControl
 from app import models, auth, schemas

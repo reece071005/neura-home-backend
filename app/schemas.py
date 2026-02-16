@@ -145,3 +145,21 @@ class DeviceControlRequest(BaseModel):
     hvac_mode: Optional[str] = None
     position: Optional[int] = None
 
+
+# ---------- Userfaces ----------
+
+class UserfaceResponse(BaseModel):
+    user_id: int
+    username: str
+    name: str
+    image_base64: str
+
+class UserfaceCreate(BaseModel):
+    username: str
+    name: str
+    status: str
+
+class UserfaceDelete(BaseModel):
+    username: str
+    name: str
+    status: str
