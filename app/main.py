@@ -6,7 +6,6 @@ from app.database import engine, Base
 from app.routes import auth, users, homecontrollers, voice, userfaces
 from app.core.redis_init import init_redis, close_redis
 from app.core.cache_management import CacheManagement
-from app.core.qdrant_init import init_qdrant, close_qdrant
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -16,11 +15,9 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     # Initialize Redis client (single instance for the whole app)
     await init_redis()
-    await init_qdrant()
     await CacheManagement.update_cache()
     yield
     await close_redis()
-    await close_qdrant()
 
 
 app = FastAPI(

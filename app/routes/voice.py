@@ -7,6 +7,7 @@ from app.voice.recognizer import recognize_from_file
 from app.core.homeassistant import LightControl
 from app import models, auth, schemas
 from app.voiceassistant.va import VoiceAssistant
+from app.voiceassistant.llm import query_llm
 
 router = APIRouter(prefix="/voice", tags=["Voice Assistant"])
 
@@ -21,14 +22,14 @@ async def voice_command(
     Example: /voice/command?text=turn on the guest room light
     """
     execute_command = await VoiceAssistant.search_commands(text)
-    return {"success": True, "message": "Command executed", "response": execute_command}
-    # if execute_command:
-    #     return await VoiceAssistant.execute_command(execute_command)
-    # else:
-    #     return {
-    #         "success": False,
-    #         "message": "No command found"
-    #     }
+
+
+    if not execute_command or not execute_command.get("entity_id"):
+        response = await query_llm(text)
+        return {"success": True, "message": "Response from LLM", "response": response}
+
+    execute_result = await VoiceAssistant.execute_command(execute_command)
+    return {"success": True, "message": "Command executed", "response": execute_result}
 
 
 @router.post("/stt")
@@ -78,16 +79,10 @@ async def speech_to_text(
                 "transcribed_text": ""
             }
         
-        # If execute_command is False, just return the transcribed text
-        if not execute_command:
-            return {
-                "success": True,
-                "transcribed_text": transcribed_text,
-                "message": "Speech recognized successfully"
-            }
         
         execute_command = await VoiceAssistant.search_commands(transcribed_text)
-        if execute_command:
+        # If no command or no resolved entity_id, fall back to LLM
+        if execute_command and execute_command.get("entity_id"):
             voice_assistant_response = await VoiceAssistant.execute_command(execute_command)
             return {
                 "success": voice_assistant_response["success"],
@@ -96,9 +91,12 @@ async def speech_to_text(
                 "transcribed_text": transcribed_text
             }
         else:
+            # If no structured command was found, fall back to the LLM
+            llm_response = await query_llm(transcribed_text)
             return {
-                "success": False,
-                "message": "No command found",
+                "success": True,
+                "message": "Response from LLM",
+                "response": llm_response,
                 "transcribed_text": transcribed_text
             }
 
