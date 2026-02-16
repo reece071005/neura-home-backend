@@ -139,4 +139,48 @@ from(bucket: "{bucket}")
         return str(v).strip().lower()
 
 
+    @staticmethod
+    def fetch_motion_recent(
+        *,
+        entity_id: str,
+        minutes: int = 5,
+    ) -> bool:
+        """
+        Returns True if motion was detected (state == "on")
+        at any point in the last `minutes`.
+        """
+
+        bucket = os.getenv("FRIEND_INFLUX_BUCKET")
+        org = os.getenv("FRIEND_INFLUX_ORG")
+
+        if not bucket or not org:
+            raise RuntimeError("Missing FRIEND_INFLUX_BUCKET / FRIEND_INFLUX_ORG in env.")
+
+        start = _utc_now() - timedelta(minutes=minutes)
+
+        flux = f"""
+from(bucket: "{bucket}")
+  |> range(start: {start.isoformat()})
+  |> filter(fn: (r) => r._measurement == "state")
+  |> filter(fn: (r) => r.domain == "binary_sensor")
+  |> filter(fn: (r) => r.entity_id == "{entity_id}")
+  |> filter(fn: (r) => r._field == "state")
+  |> filter(fn: (r) => r._value == "on")
+  |> limit(n: 1)
+        """.strip()
+
+        client = FriendInfluxDataset._get_client()
+        query_api = client.query_api()
+        tables = query_api.query_data_frame(flux)
+        client.close()
+
+        if tables is None:
+            return False
+
+        df = tables if not isinstance(tables, list) else pd.concat(tables, ignore_index=True)
+
+        return not df.empty
+
+
+
 

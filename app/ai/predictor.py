@@ -234,25 +234,31 @@ class Predictor:
 
         # ---- Check motion ----
         # ---- Check motion (REAL) ----
+        # ---- Check motion (RECENT WINDOW) ----
         motion_entities = config.get("motion", []) or []
         motion_detected = False
         motion_details = []
 
         for motion_entity in motion_entities:
             try:
-                latest = FriendInfluxDataset.fetch_latest_state(
+                detected = FriendInfluxDataset.fetch_motion_recent(
                     entity_id=motion_entity,
-                    domain="binary_sensor",
-                    field="state",
-                    lookback_minutes=60 * 24,  # last 24h
+                    minutes=5,  # production-style window
                 )
-                motion_details.append({"entity_id": motion_entity, "latest_state": latest})
-                if latest == "on":
-                    motion_detected = True
-            except Exception as e:
-                motion_details.append({"entity_id": motion_entity, "error": str(e)})
+                motion_details.append({
+                    "entity_id": motion_entity,
+                    "motion_recent_5m": detected
+                })
 
-        # If room has motion sensors but none are "on", block suggestions (if required)
+                if detected:
+                    motion_detected = True
+
+            except Exception as e:
+                motion_details.append({
+                    "entity_id": motion_entity,
+                    "error": str(e)
+                })
+
         if motion_required and motion_entities and not motion_detected:
             return {
                 "ok": True,
@@ -260,19 +266,6 @@ class Predictor:
                 "motion_detected": False,
                 "motion": motion_details,
                 "suggestions": [],
-            }
-
-        # If no motion sensors configured, you can either:
-        # - allow suggestions anyway, OR
-        # - require motion and return empty
-        if motion_required and not motion_entities:
-            return {
-                "ok": True,
-                "room": room,
-                "motion_detected": False,
-                "motion": [],
-                "suggestions": [],
-                "message": "No motion sensors configured for this room.",
             }
 
         # ---- Lights ----
