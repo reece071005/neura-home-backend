@@ -86,3 +86,57 @@ from(bucket: "{bucket}")
         df = df.dropna(subset=["time"])
 
         return df
+
+    @staticmethod
+    def fetch_latest_state(
+        *,
+        entity_id: str,
+        domain: str = "binary_sensor",
+        field: str = "state",
+        lookback_minutes: int = 60 * 24,
+    ) -> Optional[str]:
+        """
+        Returns the most recent _value for a given entity/domain/field from FRIEND Influx.
+
+        Typical motion sensors:
+          domain="binary_sensor", field="state", value="on"/"off"
+        """
+        bucket = os.getenv("FRIEND_INFLUX_BUCKET")
+        org = os.getenv("FRIEND_INFLUX_ORG")
+        if not bucket or not org:
+            raise RuntimeError("Missing FRIEND_INFLUX_BUCKET / FRIEND_INFLUX_ORG in env.")
+
+        # Look back a bit to ensure we find something even if no recent changes
+        start = _utc_now() - timedelta(minutes=lookback_minutes)
+
+        flux = f"""
+from(bucket: "{bucket}")
+  |> range(start: {start.isoformat()})
+  |> filter(fn: (r) => r._measurement == "state")
+  |> filter(fn: (r) => r.domain == "{domain}")
+  |> filter(fn: (r) => r.entity_id == "{entity_id}")
+  |> filter(fn: (r) => r._field == "{field}")
+  |> keep(columns: ["_time","_value"])
+  |> sort(columns: ["_time"], desc: true)
+  |> limit(n: 1)
+        """.strip()
+
+        client = FriendInfluxDataset._get_client()
+        query_api = client.query_api()
+        tables = query_api.query_data_frame(flux)
+        client.close()
+
+        if tables is None:
+            return None
+
+        df = tables if not isinstance(tables, list) else pd.concat(tables, ignore_index=True)
+        if df.empty or "_value" not in df.columns:
+            return None
+
+        v = df["_value"].iloc[0]
+        if v is None:
+            return None
+        return str(v).strip().lower()
+
+
+

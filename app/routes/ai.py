@@ -159,3 +159,10 @@ async def predict_cover_xgb(
 ):
     cfg = BuildConfig(freq="5min", horizon_minutes=15)
     return Predictor.predict_cover_position_next_15m(entity_id=entity_id, days_context=7, cfg=cfg)
+
+@router.get("/smart-suggestions")
+async def smart_suggestions(
+    room: str = Query(...),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return Predictor.smart_room_suggestions(room=room)

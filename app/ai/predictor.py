@@ -11,6 +11,8 @@ from app.ai.xgb_light_trainer import XGBLightTrainer
 from app.ai.xgb_climate_trainer import XGBClimateTrainer
 from app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
 from app.ai.xgb_cover_trainer import XGBCoverTrainer
+from app.ai.room_config import ROOM_CONFIG
+from app.ai.friend_dataset import FriendInfluxDataset
 
 
 class Predictor:
@@ -215,6 +217,113 @@ class Predictor:
             "delta": round(delta, 1),
             "suggest_change": bool(abs(delta) >= 15.0),  # only if >= 15% change
         }
+
+    @staticmethod
+    def smart_room_suggestions(
+        *,
+        room: str,
+        motion_required: bool = True,
+    ) -> Dict[str, Any]:
+
+        if room not in ROOM_CONFIG:
+            return {"ok": False, "message": "Room not configured."}
+
+        config = ROOM_CONFIG[room]
+        suggestions = []
+        motion_detected = False
+
+        # ---- Check motion ----
+        # ---- Check motion (REAL) ----
+        motion_entities = config.get("motion", []) or []
+        motion_detected = False
+        motion_details = []
+
+        for motion_entity in motion_entities:
+            try:
+                latest = FriendInfluxDataset.fetch_latest_state(
+                    entity_id=motion_entity,
+                    domain="binary_sensor",
+                    field="state",
+                    lookback_minutes=60 * 24,  # last 24h
+                )
+                motion_details.append({"entity_id": motion_entity, "latest_state": latest})
+                if latest == "on":
+                    motion_detected = True
+            except Exception as e:
+                motion_details.append({"entity_id": motion_entity, "error": str(e)})
+
+        # If room has motion sensors but none are "on", block suggestions (if required)
+        if motion_required and motion_entities and not motion_detected:
+            return {
+                "ok": True,
+                "room": room,
+                "motion_detected": False,
+                "motion": motion_details,
+                "suggestions": [],
+            }
+
+        # If no motion sensors configured, you can either:
+        # - allow suggestions anyway, OR
+        # - require motion and return empty
+        if motion_required and not motion_entities:
+            return {
+                "ok": True,
+                "room": room,
+                "motion_detected": False,
+                "motion": [],
+                "suggestions": [],
+                "message": "No motion sensors configured for this room.",
+            }
+
+        # ---- Lights ----
+        for entity in config.get("lights", []):
+            try:
+                result = Predictor.predict_room_light_next_15m(room=entity)
+                if result.get("suggest_turn_on"):
+                    suggestions.append({
+                        "type": "light",
+                        "entity_id": entity,
+                        "confidence": result.get("probability_light_on"),
+                    })
+            except Exception:
+                pass
+
+        # ---- Climate ----
+        for entity in config.get("climate", []):
+            try:
+                active = Predictor.predict_room_climate_active_next_15m(room=entity)
+                if active.get("suggest_climate"):
+                    setpoint = Predictor.predict_room_climate_setpoint_next_15m(room=entity)
+                    suggestions.append({
+                        "type": "climate",
+                        "entity_id": entity,
+                        "confidence": active.get("probability_climate_active"),
+                        "suggested_setpoint": setpoint.get("predicted_setpoint_celsius"),
+                    })
+            except Exception:
+                pass
+
+        # ---- Covers ----
+        for entity in config.get("covers", []):
+            try:
+                result = Predictor.predict_cover_position_next_15m(entity_id=entity)
+                if result.get("suggest_change"):
+                    suggestions.append({
+                        "type": "cover",
+                        "entity_id": entity,
+                        "predicted_position": result.get("predicted_position"),
+                    })
+            except Exception:
+                pass
+
+        return {
+            "ok": True,
+            "room": room,
+            "motion_detected": motion_detected,
+            "motion": motion_details,
+            "suggestions": suggestions,
+        }
+
 
 
 
