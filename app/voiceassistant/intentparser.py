@@ -583,8 +583,6 @@ def parse_command(text: str, entity_ids: list[str] | None = None) -> dict:
         Dict in the same shape that `VoiceAssistant.execute_command` accepts:
         - {"output_json": {"intent": ..., "domain": ..., "entity_id": ..., "parameters": ..., "response": ...}}
     """
-    if entity_ids is None:
-        entity_ids = ENTITY_IDS
     
     # Detect device and intent
     device = detect_device(text)  # "light" | "fan" | "climate" | "cover" | None
