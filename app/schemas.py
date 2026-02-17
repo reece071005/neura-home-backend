@@ -158,6 +158,25 @@ class DeviceControlRequest(BaseModel):
     position: Optional[int] = None
 
 
+class HomeAssistantInstance(BaseModel):
+    name: str
+    ip: str
+    port: int
+    base_url: str
+
+
+class HomeAssistantUrl(BaseModel):
+    url: str
+
+
+class HomeAssistantSecret(BaseModel):
+    secret: str
+
+
+class HomeAssistantSecretResponse(BaseModel):
+    secret: str
+
+
 # ---------- Userfaces ----------
 
 class UserfaceResponse(BaseModel):
@@ -175,3 +194,21 @@ class UserfaceDelete(BaseModel):
     username: str
     name: str
     status: str
+
+
+# ---------- Camera Tracking ----------
+
+class CameraAdd(BaseModel):
+    entity_id: str
+
+
+class CameraBatchAdd(BaseModel):
+    entity_ids: list[str]
+
+
+class CameraResponse(BaseModel):
+    entity_ids: list[str]
+
+
+class CameraDelete(BaseModel):
+    entity_id: str

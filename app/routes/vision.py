@@ -5,7 +5,7 @@ import base64
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,7 +13,7 @@ from sqlalchemy import select
 from app.config import NOTIFY_DIR
 from app.database import get_db
 from app.models import DetectionNotification
-from app import auth, models
+from app import auth, models, schemas
 
 router = APIRouter(prefix="/vision", tags=["vision"])
 
@@ -121,3 +121,154 @@ async def create_detection_notification(
     await db.commit()
     await db.refresh(entry)
     return {"id": entry.id, "message": entry.message, "created_at": entry.created_at}
+
+
+# ---------- Camera Tracking Endpoints ----------
+
+@router.get("/cameras", response_model=schemas.CameraResponse)
+async def get_tracked_cameras(
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    """
+    Retrieve all tracked camera entity IDs.
+    Returns an empty list if no cameras are configured.
+    """
+    result = await db.execute(
+        select(models.Configuration).where(models.Configuration.key == "tracked_cameras")
+    )
+    config = result.scalar_one_or_none()
+
+    if not config or not config.value or "entity_ids" not in config.value:
+        return schemas.CameraResponse(entity_ids=[])
+
+    return schemas.CameraResponse(entity_ids=config.value["entity_ids"])
+
+
+@router.post("/cameras")
+async def add_camera(
+    payload: schemas.CameraAdd,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    """
+    Add a single camera entity ID to the tracked cameras list.
+    If the camera is already tracked, returns success without duplicates.
+    """
+    result = await db.execute(
+        select(models.Configuration).where(models.Configuration.key == "tracked_cameras")
+    )
+    config = result.scalar_one_or_none()
+
+    if config:
+        entity_ids = list(config.value.get("entity_ids", []))
+        if payload.entity_id not in entity_ids:
+            entity_ids.append(payload.entity_id)
+            config.value = {"entity_ids": entity_ids}
+    else:
+        config = models.Configuration(
+            key="tracked_cameras",
+            value={"entity_ids": [payload.entity_id]}
+        )
+        db.add(config)
+
+    await db.commit()
+    await db.refresh(config)
+
+    return {
+        "message": f"Camera {payload.entity_id} added successfully",
+        "entity_ids": config.value["entity_ids"]
+    }
+
+
+@router.post("/cameras/batch")
+async def add_cameras_batch(
+    payload: schemas.CameraBatchAdd,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    """
+    Add multiple camera entity IDs to the tracked cameras list (batch operation).
+    Duplicates are automatically filtered out.
+    """
+    if not payload.entity_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="entity_ids list cannot be empty"
+        )
+
+    result = await db.execute(
+        select(models.Configuration).where(models.Configuration.key == "tracked_cameras")
+    )
+    config = result.scalar_one_or_none()
+
+    if config:
+        existing_ids = set(config.value.get("entity_ids", []))
+        new_ids = [eid for eid in payload.entity_ids if eid not in existing_ids]
+        if not new_ids:
+            return {
+                "message": "All cameras are already tracked",
+                "entity_ids": list(existing_ids),
+                "added_count": 0
+            }
+        entity_ids = list(existing_ids) + new_ids
+        config.value = {"entity_ids": entity_ids}
+        added_count = len(new_ids)
+    else:
+        # Remove duplicates from input
+        entity_ids = list(dict.fromkeys(payload.entity_ids))  # Preserves order while removing duplicates
+        config = models.Configuration(
+            key="tracked_cameras",
+            value={"entity_ids": entity_ids}
+        )
+        db.add(config)
+        added_count = len(entity_ids)
+
+    await db.commit()
+    await db.refresh(config)
+
+    return {
+        "message": f"Added {added_count} camera(s) successfully",
+        "entity_ids": config.value["entity_ids"],
+        "added_count": added_count
+    }
+
+
+@router.delete("/cameras/{entity_id}")
+async def delete_camera(
+    entity_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    """
+    Remove a camera entity ID from the tracked cameras list.
+    Returns 404 if the camera is not found in the tracked list.
+    """
+    result = await db.execute(
+        select(models.Configuration).where(models.Configuration.key == "tracked_cameras")
+    )
+    config = result.scalar_one_or_none()
+
+    if not config or not config.value or "entity_ids" not in config.value:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Camera {entity_id} not found in tracked cameras"
+        )
+
+    entity_ids = list(config.value["entity_ids"])
+    if entity_id not in entity_ids:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Camera {entity_id} not found in tracked cameras"
+        )
+
+    entity_ids.remove(entity_id)
+    config.value = {"entity_ids": entity_ids}
+
+    await db.commit()
+    await db.refresh(config)
+
+    return {
+        "message": f"Camera {entity_id} removed successfully",
+        "entity_ids": config.value["entity_ids"]
+    }

@@ -53,3 +53,11 @@ class DetectionNotification(Base):
     image_path = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class Configuration(Base):
+    __tablename__ = "configurations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String, nullable=False, index=True)
+    value = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

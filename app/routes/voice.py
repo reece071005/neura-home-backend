@@ -34,14 +34,14 @@ async def voice_command(
 
 @router.post("/stt")
 async def speech_to_text(
-    file: UploadFile = File(..., description="MP3 audio file for speech recognition"),
+    file: UploadFile = File(..., description="M4A audio file for speech recognition"),
     execute_command: bool = Query(False, description="Whether to execute the recognized command"),
     current_user: models.User = Depends(auth.get_current_active_user)
 ):
     """
-    Accepts an MP3 audio file, performs speech-to-text recognition, and optionally executes the command.
+    Accepts an M4A audio file, performs speech-to-text recognition, and optionally executes the command.
     
-    - **file**: MP3 audio file containing speech
+    - **file**: M4A audio file containing speech
     - **execute_command**: If True, parses intent and executes the command via Home Assistant
     
     Returns:
@@ -50,17 +50,17 @@ async def speech_to_text(
     - **command_result**: Result of command execution (if execute_command is True)
     """
     # Validate file type
-    if not file.filename.lower().endswith('.mp3'):
+    if not file.filename.lower().endswith('.m4a'):
         raise HTTPException(
             status_code=400,
-            detail="File must be an MP3 audio file"
+            detail="File must be an M4A audio file"
         )
     
     # Save uploaded file temporarily
     temp_path = None
     try:
         # Create temporary file
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.m4a')
         temp_path = temp_file.name
         temp_file.close()
         
