@@ -24,7 +24,7 @@ async def voice_command(
     execute_command = await VoiceAssistant.search_commands(text)
 
 
-    if not execute_command or not execute_command.get("entity_id"):
+    if not execute_command or not execute_command.get("output_json").get("entity_id"):
         response = await query_llm(text)
         return {"success": True, "message": "Response from LLM", "response": response}
 
@@ -82,7 +82,7 @@ async def speech_to_text(
         
         execute_command = await VoiceAssistant.search_commands(transcribed_text)
         # If no command or no resolved entity_id, fall back to LLM
-        if execute_command and execute_command.get("entity_id"):
+        if execute_command and execute_command.get("output_json").get("entity_id"):
             voice_assistant_response = await VoiceAssistant.execute_command(execute_command)
             return {
                 "success": voice_assistant_response["success"],
