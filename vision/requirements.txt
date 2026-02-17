@@ -1,0 +1,9 @@
+opencv-python
+numpy
+onnxruntime
+ultralytics
+insightface
+fastapi
+uvicorn[standard]
+aiohttp
+python-multipart

@@ -42,3 +42,14 @@ class Userface(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+
+class DetectionNotification(Base):
+    """Vision detection events (e.g. resident/stranger at front door)."""
+    __tablename__ = "detection_notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message = Column(String, nullable=False)
+    camera_entity = Column(String, nullable=False, index=True)
+    image_path = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+

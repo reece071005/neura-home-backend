@@ -1,12 +1,9 @@
-from datetime import timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete
 from app import models, schemas, auth
 from app.database import get_db
 from pathlib import Path
-from app.routes import userfaces as userfaces_routes
 
 router = APIRouter(prefix="/auth/users", tags=["users"])
 

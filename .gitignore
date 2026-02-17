@@ -12,3 +12,4 @@ llm/models/
 app/voice/models/*.gguf
 .DS_Store
 /residents/
+vision/notify/

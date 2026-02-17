@@ -8,10 +8,7 @@ HEADERS = {
 }
 
 REDIS_URL = "redis://redis:6379/0"
-LLM_KEY = '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'
+LLM_KEY = "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"
 
-
-# Ollama embedding model for device matching (run: ollama pull <model>)
-EMBED_MODEL = os.getenv("EMBED_MODEL", "nomic-embed-text")
-EMBED_API_URL = os.getenv("EMBED_API_URL", "http://host.docker.internal:11434/api/embeddings")
-
+# Vision notify folder (shared with vision container; mount vision_notify to this path)
+NOTIFY_DIR = os.getenv("NOTIFY_DIR", "/app/notify")

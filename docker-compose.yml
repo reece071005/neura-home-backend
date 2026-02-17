@@ -22,6 +22,7 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/neura_db
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-this-in-production}
+      NOTIFY_DIR: /app/notify
     ports:
       - "8000:8000"
     depends_on:
@@ -29,6 +30,8 @@ services:
         condition: service_healthy
     volumes:
       - .:/app
+      # Share the same notify folder with the vision container (and host)
+      - ./notify:/app/notify
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
   redis:
     image: redis:alpine
@@ -38,7 +41,19 @@ services:
     volumes:
       - redis_data:/data
 
-
+  vision:
+    build:
+      context: .
+      dockerfile: vision/Dockerfile
+    container_name: neura_vision
+    environment:
+      VISION_RESIDENTS_DIR: /app/residents  
+      NOTIFY_DIR: /app/notify
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./residents:/app/residents
+      - ./notify:/app/notify
 volumes:
   postgres_data:
   redis_data:
