@@ -23,3 +23,5 @@ app/ai/artifacts/**
 
 # XGBoost cache files
 *.json
+
+

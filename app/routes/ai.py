@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
-from app import auth, models
+from typing import Any, Dict, Optional, Literal
 
+from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
+
+from app import auth, models
 from app.ai.room_trainer import RoomTrainer
 from app.ai.timeseries_builder import BuildConfig
 from app.ai.xgb_light_trainer import XGBLightTrainer
@@ -10,9 +13,78 @@ from app.ai.predictor import Predictor
 from app.ai.xgb_climate_trainer import XGBClimateTrainer
 from app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
 from app.ai.xgb_cover_trainer import XGBCoverTrainer
+from app.ai.room_config import ROOM_CONFIG
+from app.ai.suggestion_store import SuggestionStore
 
 
 router = APIRouter(prefix="/ai", tags=["AI"])
+
+
+# ============================================
+# Frontend-friendly models
+# ============================================
+
+SuggestionType = Literal["light", "climate", "cover"]
+FeedbackDecision = Literal["accepted", "declined", "dismissed"]
+
+
+class SuggestionFeedback(BaseModel):
+    room: str = Field(..., description="Room key from ROOM_CONFIG")
+    type: SuggestionType
+    entity_id: str
+    decision: FeedbackDecision
+    meta: Optional[Dict[str, Any]] = None
+
+
+# ============================================
+# NEW: Frontend endpoints
+# ============================================
+
+@router.get("/rooms")
+async def list_rooms(
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    rooms = []
+    for room, cfg in ROOM_CONFIG.items():
+        rooms.append({
+            "room": room,
+            "lights": cfg.get("lights", []),
+            "climate": cfg.get("climate", []),
+            "covers": cfg.get("covers", []),
+            "motion": cfg.get("motion", []),
+        })
+
+    return {"ok": True, "rooms": rooms}
+
+
+@router.get("/suggestion-cards")
+async def suggestion_cards(
+    room: str = Query(...),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    """
+    Frontend endpoint:
+    - applies motion gate
+    - applies cooldown
+    - returns suggestion cards
+    """
+    return await Predictor.smart_room_suggestions(room=room, motion_required=True)
+
+
+@router.post("/suggestion-feedback")
+async def suggestion_feedback(
+    payload: SuggestionFeedback,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    await SuggestionStore.log_feedback(
+        user_id=current_user.id,
+        room=payload.room,
+        suggestion_type=payload.type,
+        entity_id=payload.entity_id,
+        decision=payload.decision,
+        meta=payload.meta,
+    )
+    return {"ok": True}
 
 
 # ============================================
@@ -121,6 +193,7 @@ async def predict_room_xgb_climate(
     cfg = BuildConfig(freq="5min", horizon_minutes=15)
     return Predictor.predict_room_climate_active_next_15m(room=room, days_context=7, cfg=cfg)
 
+
 @router.post("/train-climate-temp-xgb")
 async def train_room_xgb_climate_temp(
     room: str = Query(...),
@@ -160,9 +233,11 @@ async def predict_cover_xgb(
     cfg = BuildConfig(freq="5min", horizon_minutes=15)
     return Predictor.predict_cover_position_next_15m(entity_id=entity_id, days_context=7, cfg=cfg)
 
+
+# Keep your original endpoint name for backwards compatibility
 @router.get("/smart-suggestions")
 async def smart_suggestions(
     room: str = Query(...),
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
-    return Predictor.smart_room_suggestions(room=room)
+    return await Predictor.smart_room_suggestions(room=room)

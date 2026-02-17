@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
@@ -12,10 +12,18 @@ from app.ai.xgb_climate_trainer import XGBClimateTrainer
 from app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
 from app.ai.xgb_cover_trainer import XGBCoverTrainer
 from app.ai.room_config import ROOM_CONFIG
-from app.ai.friend_dataset import FriendInfluxDataset
+from app.ai.suggestion_store import SuggestionStore, CooldownConfig
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class Predictor:
+    # ==============================
+    # Individual model inference
+    # ==============================
+
     @staticmethod
     def predict_room_light_next_15m(
         *,
@@ -28,7 +36,6 @@ class Predictor:
         if not artifact:
             return {"ok": False, "room": room, "message": "Model not trained. Run /ai/train-room-xgb first."}
 
-        # Pull last few days for context to build the last row features
         df_long = FriendInfluxDataset.fetch_room_state_df(room=room, days=days_context)
         df_long = df_long[df_long["domain"] == "light"].copy()
 
@@ -47,7 +54,7 @@ class Predictor:
         X = pd.DataFrame([last_row[artifact.feature_columns].to_dict()])
         prob_on = float(artifact.model.predict_proba(X)[0][1])
 
-        now = datetime.now(timezone.utc)
+        now = _utc_now()
 
         return {
             "ok": True,
@@ -96,7 +103,7 @@ class Predictor:
 
         prob_active = float(artifact.model.predict_proba(X)[0][1])
 
-        now = datetime.now(timezone.utc)
+        now = _utc_now()
 
         return {
             "ok": True,
@@ -144,7 +151,7 @@ class Predictor:
 
         pred_setpoint = float(artifact.model.predict(X)[0])
 
-        now = datetime.now(timezone.utc)
+        now = _utc_now()
 
         return {
             "ok": True,
@@ -183,7 +190,6 @@ class Predictor:
         if df_ts.empty:
             return {"ok": False, "entity_id": entity_id, "message": "No valid position data."}
 
-        # Feature engineering (must match trainer)
         df_ts["hour"] = df_ts["time"].dt.hour
         df_ts["weekday"] = df_ts["time"].dt.weekday
         df_ts["is_weekend"] = (df_ts["weekday"] >= 5).astype(int)
@@ -198,11 +204,10 @@ class Predictor:
         X = pd.DataFrame([last[artifact.feature_columns].to_dict()])
 
         pred_pos = float(artifact.model.predict(X)[0])
-        pred_pos = max(0.0, min(100.0, pred_pos))  # clamp to 0..100
+        pred_pos = max(0.0, min(100.0, pred_pos))
 
-        now = datetime.now(timezone.utc)
+        now = _utc_now()
 
-        # Suggestion rule: only suggest if change is meaningful
         current_pos = float(last["current_position"])
         delta = pred_pos - current_pos
 
@@ -215,35 +220,36 @@ class Predictor:
             "current_position": round(current_pos, 1),
             "predicted_position": round(pred_pos, 1),
             "delta": round(delta, 1),
-            "suggest_change": bool(abs(delta) >= 15.0),  # only if >= 15% change
+            "suggest_change": bool(abs(delta) >= 15.0),
         }
 
+    # ==============================
+    # Smart suggestion layer (cards)
+    # ==============================
+
     @staticmethod
-    def smart_room_suggestions(
+    async def smart_room_suggestions(
         *,
         room: str,
         motion_required: bool = True,
+        cooldown_cfg: CooldownConfig = CooldownConfig(),
     ) -> Dict[str, Any]:
 
         if room not in ROOM_CONFIG:
             return {"ok": False, "message": "Room not configured."}
 
         config = ROOM_CONFIG[room]
-        suggestions = []
-        motion_detected = False
 
-        # ---- Check motion ----
-        # ---- Check motion (REAL) ----
-        # ---- Check motion (RECENT WINDOW) ----
+        # ---- Check motion (recent window) ----
         motion_entities = config.get("motion", []) or []
         motion_detected = False
-        motion_details = []
+        motion_details: List[Dict[str, Any]] = []
 
         for motion_entity in motion_entities:
             try:
                 detected = FriendInfluxDataset.fetch_motion_recent(
                     entity_id=motion_entity,
-                    minutes=5,  # production-style window
+                    minutes=5,
                 )
                 motion_details.append({
                     "entity_id": motion_entity,
@@ -268,16 +274,44 @@ class Predictor:
                 "suggestions": [],
             }
 
+        suggestions: List[Dict[str, Any]] = []
+
         # ---- Lights ----
         for entity in config.get("lights", []):
             try:
                 result = Predictor.predict_room_light_next_15m(room=entity)
-                if result.get("suggest_turn_on"):
-                    suggestions.append({
-                        "type": "light",
+                if not result.get("suggest_turn_on"):
+                    continue
+
+                prob = float(result.get("probability_light_on") or 0.0)
+                if prob < 0.65:
+                    continue
+
+                # Cooldown check
+                in_cd = await SuggestionStore.is_in_cooldown(room=room, suggestion_type="light", entity_id=entity)
+                if in_cd:
+                    continue
+
+                await SuggestionStore.set_cooldown(
+                    room=room,
+                    suggestion_type="light",
+                    entity_id=entity,
+                    cfg=cooldown_cfg,
+                )
+
+                suggestions.append({
+                    "type": "light",
+                    "entity_id": entity,
+                    "confidence": prob,
+                    "title": "Turn on lights?",
+                    "subtitle": f"Predicted you may want lights on soon ({prob:.2f}).",
+                    "action": {
+                        "domain": "light",
+                        "service": "turn_on",
                         "entity_id": entity,
-                        "confidence": result.get("probability_light_on"),
-                    })
+                    }
+                })
+
             except Exception:
                 pass
 
@@ -285,14 +319,43 @@ class Predictor:
         for entity in config.get("climate", []):
             try:
                 active = Predictor.predict_room_climate_active_next_15m(room=entity)
-                if active.get("suggest_climate"):
-                    setpoint = Predictor.predict_room_climate_setpoint_next_15m(room=entity)
-                    suggestions.append({
-                        "type": "climate",
+                if not active.get("suggest_climate"):
+                    continue
+
+                prob = float(active.get("probability_climate_active") or 0.0)
+                if prob < 0.65:
+                    continue
+
+                # Cooldown check
+                in_cd = await SuggestionStore.is_in_cooldown(room=room, suggestion_type="climate", entity_id=entity)
+                if in_cd:
+                    continue
+
+                setpoint = Predictor.predict_room_climate_setpoint_next_15m(room=entity)
+                suggested_temp = setpoint.get("predicted_setpoint_celsius")
+
+                await SuggestionStore.set_cooldown(
+                    room=room,
+                    suggestion_type="climate",
+                    entity_id=entity,
+                    cfg=cooldown_cfg,
+                )
+
+                suggestions.append({
+                    "type": "climate",
+                    "entity_id": entity,
+                    "confidence": prob,
+                    "title": "Adjust AC?",
+                    "subtitle": f"Predicted HVAC will be needed soon ({prob:.2f}).",
+                    "suggested_setpoint": suggested_temp,
+                    "action": {
+                        "domain": "climate",
+                        "service": "set_temperature",
                         "entity_id": entity,
-                        "confidence": active.get("probability_climate_active"),
-                        "suggested_setpoint": setpoint.get("predicted_setpoint_celsius"),
-                    })
+                        "temperature": suggested_temp,
+                    }
+                })
+
             except Exception:
                 pass
 
@@ -300,12 +363,37 @@ class Predictor:
         for entity in config.get("covers", []):
             try:
                 result = Predictor.predict_cover_position_next_15m(entity_id=entity)
-                if result.get("suggest_change"):
-                    suggestions.append({
-                        "type": "cover",
+                if not result.get("suggest_change"):
+                    continue
+
+                # Cooldown check
+                in_cd = await SuggestionStore.is_in_cooldown(room=room, suggestion_type="cover", entity_id=entity)
+                if in_cd:
+                    continue
+
+                await SuggestionStore.set_cooldown(
+                    room=room,
+                    suggestion_type="cover",
+                    entity_id=entity,
+                    cfg=cooldown_cfg,
+                )
+
+                predicted_pos = result.get("predicted_position")
+
+                suggestions.append({
+                    "type": "cover",
+                    "entity_id": entity,
+                    "title": "Adjust blinds?",
+                    "subtitle": f"Predicted blind position should change soon.",
+                    "predicted_position": predicted_pos,
+                    "action": {
+                        "domain": "cover",
+                        "service": "set_cover_position",
                         "entity_id": entity,
-                        "predicted_position": result.get("predicted_position"),
-                    })
+                        "position": predicted_pos,
+                    }
+                })
+
             except Exception:
                 pass
 
@@ -316,7 +404,3 @@ class Predictor:
             "motion": motion_details,
             "suggestions": suggestions,
         }
-
-
-
-
