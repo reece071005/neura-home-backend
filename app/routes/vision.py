@@ -41,7 +41,9 @@ def _image_path_to_base64(image_path: str | None) -> str | None:
         return None
     try:
         data = path.read_bytes()
-        return base64.b64encode(data).decode("ascii")
+        # Return a JPEG data URL (data:image/jpeg;base64,...) for easy use in <img src="...">
+        b64 = base64.b64encode(data).decode("ascii")
+        return f"data:image/jpeg;base64,{b64}"
     except Exception:
         return None
 
@@ -90,7 +92,6 @@ async def get_notification_by_id(
     result = await db.execute(select(DetectionNotification).where(DetectionNotification.id == notification_id))
     notification = result.scalar_one_or_none()
     if notification is None:
-        # Return a proper 404 when the requested notification does not exist
         raise HTTPException(status_code=404, detail="Notification not found")
 
     print(notification.image_path)

@@ -83,7 +83,7 @@ async def change_user_password(
     db: AsyncSession = Depends(get_db),
     current_admin: models.User = Depends(auth.get_current_admin_user),
 ):
-    """Admin-only endpoint to change a user's role."""
+    """Admin-only endpoint to change a user's password."""
     result = await db.execute(
         select(models.User).where(models.User.username == user.username)
     )
@@ -94,6 +94,34 @@ async def change_user_password(
     await db.commit()
     await db.refresh(db_user)
     return db_user
+
+
+@router.put("/change-password-self", response_model=schemas.UserResponse)
+async def change_own_password(
+    payload: schemas.ChangeOwnPassword,
+    db: AsyncSession = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    """Allow the currently authenticated user to change their own password."""
+    # Ensure the new password and confirmation match
+    if payload.new_password != payload.confirm_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password and confirmation do not match",
+        )
+
+    # Verify the old password is correct
+    if not auth.verify_password(payload.old_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Old password is incorrect",
+        )
+
+    # Update the user's password
+    current_user.hashed_password = auth.get_password_hash(payload.new_password)
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
 
 @router.put("/change-email", response_model=schemas.UserResponse)
 async def change_user_email(

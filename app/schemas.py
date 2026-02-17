@@ -54,6 +54,18 @@ class ChangeUserPassword(BaseModel):
             raise ValueError("Password must be at least 8 characters long")
         return v
 
+
+class ChangeOwnPassword(BaseModel):
+    old_password: str
+    new_password: str
+    confirm_password: str
+
+    @field_validator("new_password")
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        return v
+
 # Response schemas
 class UserResponse(UserBase):
     id: int
