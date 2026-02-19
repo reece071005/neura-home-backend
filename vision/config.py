@@ -10,6 +10,11 @@ HA_HEADERS = {
 RESIDENTS_DIR = os.getenv("VISION_RESIDENTS_DIR", "/app/residents")
 VISION_NOTIFY_DIR = os.getenv("NOTIFY_DIR", "/app/notify")
 
-VISION_CAMERAS = [s.strip() for s in os.getenv("VISION_CAMERAS", "camera.frontdoor_live_view,camera.garage_live_view").split(",") if s.strip()]
 VISION_INTERVAL_SECONDS = int(os.getenv("VISION_INTERVAL_SECONDS", "5"))
+
+VISION_DATABASE_URL = os.getenv(
+    "VISION_DATABASE_URL",
+    "postgresql://postgres:postgres@db:5432/neura_db",
+)
+
 API_URL = "http://api.neura-home-backend.orb.local:8000"

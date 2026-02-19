@@ -7,8 +7,10 @@ Self-contained; no dependency on app.
 import asyncio
 from datetime import datetime
 from pathlib import Path
+import json
 
 import aiohttp
+import asyncpg
 import cv2
 import numpy as np
 
@@ -17,9 +19,9 @@ from config import (
     API_URL,
     HA_HEADERS,
     HOME_ASSISTANT_URL,
-    VISION_CAMERAS,
     VISION_INTERVAL_SECONDS,
     VISION_NOTIFY_DIR,
+    VISION_DATABASE_URL,
 )
 
 
@@ -72,6 +74,68 @@ async def _post_notification(camera_entity: str, image_path: str, message: str) 
         pass
 
 
+async def _fetch_camera_entities_from_db() -> list[str] | None:
+    """
+    Fetch the list of camera entity IDs directly from the Postgres DB
+    by reading the `configurations` table (key = 'tracked_cameras').
+    """
+    if not VISION_DATABASE_URL:
+        print("[surveillance] VISION_DATABASE_URL is not set; cannot load cameras from DB")
+        return None
+
+    try:
+        print(f"[surveillance] Connecting to DB at {VISION_DATABASE_URL!r} to load cameras")
+        conn = await asyncpg.connect(VISION_DATABASE_URL)
+    except Exception as e:
+        print(f"[surveillance] Failed to connect to DB: {e!r}")
+        return None
+
+    try:
+        row = await conn.fetchrow(
+            "SELECT value FROM configurations WHERE key = $1 ORDER BY id DESC LIMIT 1",
+            "tracked_cameras",
+        )
+        if not row:
+            print("[surveillance] No 'tracked_cameras' configuration row found; returning empty list")
+            return []
+        value = row["value"]
+        # `value` may be stored as JSON or as a JSON-encoded string; handle both.
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except Exception as e:
+                print(f"[surveillance] Failed to json.loads config value string: {e!r}")
+                return None
+        if not isinstance(value, dict):
+            print(f"[surveillance] Unexpected config value type after normalization: {type(value)!r}")
+            return None
+        entity_ids = value.get("entity_ids")
+        if not isinstance(entity_ids, list):
+            print("[surveillance] 'entity_ids' missing or not a list; returning empty list")
+            return []
+        print(f"[surveillance] Loaded camera entity_ids from DB: {entity_ids}")
+        return [str(e) for e in entity_ids if isinstance(e, str)]
+    except Exception as e:
+        print(f"[surveillance] Error while fetching cameras from DB: {e!r}")
+        return None
+    finally:
+        await conn.close()
+
+
+async def _fetch_camera_entities(session: aiohttp.ClientSession) -> list[str] | None:
+    """
+    Fetch the list of camera entity IDs, preferring direct DB access.
+    """
+    print("[surveillance] Refreshing camera entities from DB...")
+    db_entities = await _fetch_camera_entities_from_db()
+    if db_entities is not None:
+        print(f"[surveillance] Using camera entities from DB: {db_entities}")
+        return db_entities
+    print("[surveillance] DB camera fetch returned None; keeping existing camera list")
+    # If DB not reachable, keep existing camera list (return None so caller leaves it unchanged)
+    return None
+
+
 async def _fetch_snapshot(session: aiohttp.ClientSession, camera_entity: str) -> bytes | None:
     """Fetch a single camera snapshot from Home Assistant."""
     url = f"{HOME_ASSISTANT_URL}/camera_proxy/{camera_entity}"
@@ -89,10 +153,37 @@ async def _producer(
     interval_seconds: float,
     input_queue: asyncio.Queue,
 ) -> None:
-    """Every `interval_seconds` fetch a snapshot from each camera and put (camera_entity, image) on the queue."""
+    """
+    Every `interval_seconds`:
+    - refresh the list of camera entities from the main API (if available)
+    - fetch a snapshot from each camera
+    - put (camera_entity, image) on the queue
+    """
     async with aiohttp.ClientSession() as session:
+        # Keep a local list that can be updated from the API.
+        current_camera_entities: list[str] = list(camera_entities)
+        # Refresh the camera list from the API at most every 30 seconds.
+        camera_refresh_interval = 30.0
+        last_camera_refresh: float = 0.0
+
         while True:
-            for camera_entity in camera_entities:
+            # Periodically refresh camera list from main API.
+            now = asyncio.get_event_loop().time()
+            if now - last_camera_refresh >= camera_refresh_interval:
+                try:
+                    fetched = await _fetch_camera_entities(session)
+                    if fetched is not None:
+                        current_camera_entities = fetched
+                        print(f"[surveillance] Current camera entity_ids: {current_camera_entities}")
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    # On any error, keep using the last known list.
+                    pass
+                finally:
+                    last_camera_refresh = now
+
+            for camera_entity in current_camera_entities:
                 try:
                     image_data = await _fetch_snapshot(session, camera_entity)
                     if image_data is None:
@@ -178,11 +269,22 @@ async def run_surveillance(
     Start the vision surveillance loop: poll cameras via HA API, analyze frames, save to notify when detections.
     Returns the asyncio Task so the caller can cancel it on shutdown.
     """
-    camera_entities = camera_entities or VISION_CAMERAS
+    # Initial load of camera entities (if not explicitly provided)
+    if camera_entities is None:
+        initial_from_db = await _fetch_camera_entities_from_db()
+        if initial_from_db is None:
+            print("[surveillance] Could not load initial camera entities from DB; starting with empty list")
+            camera_entities = []
+        else:
+            camera_entities = initial_from_db
+
+    print(f"[surveillance] Starting surveillance with camera_entities={camera_entities}")
     interval_seconds = interval_seconds if interval_seconds is not None else VISION_INTERVAL_SECONDS
     notify_dir = notify_dir or VISION_NOTIFY_DIR
 
-    if not camera_entities or not HOME_ASSISTANT_URL or not HA_HEADERS:
+    # Allow starting even when no cameras are configured initially; the
+    # list can be populated dynamically from the main API.
+    if not HOME_ASSISTANT_URL or not HA_HEADERS:
         return None
 
     from camerastream import run_analyzer

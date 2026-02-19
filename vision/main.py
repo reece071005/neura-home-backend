@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
 
-from config import VISION_CAMERAS
+
 from surveillance import run_surveillance
 
 
@@ -57,7 +57,7 @@ app = FastAPI(
 
 @app.get("/health")
 async def health():
-    return {"status": "healthy", "cameras_configured": len(VISION_CAMERAS)}
+    return {"status": "healthy"}
 
 
 @app.post("/analyze")

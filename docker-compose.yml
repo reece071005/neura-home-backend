@@ -52,6 +52,7 @@ services:
     ports:
       - "8001:8001"
     volumes:
+      - ./vision:/app
       - ./residents:/app/residents
       - ./notify:/app/notify
 volumes:

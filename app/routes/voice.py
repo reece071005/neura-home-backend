@@ -8,6 +8,9 @@ from app.core.homeassistant import LightControl
 from app import models, auth, schemas
 from app.voiceassistant.va import VoiceAssistant
 from app.voiceassistant.llm import query_llm
+from app.voiceassistant.location import query_resident_location, query_delivery_status
+from app.database import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/voice", tags=["Voice Assistant"])
 
@@ -15,28 +18,40 @@ router = APIRouter(prefix="/voice", tags=["Voice Assistant"])
 @router.get("/command")
 async def voice_command(
     text: str = Query(..., description="Command text from user"),
-    current_user: models.User = Depends(auth.get_current_active_user)
+    current_user: models.User = Depends(auth.get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Accepts a voice command as text, parses intent, and executes action via Home Assistant.
     Example: /voice/command?text=turn on the guest room light
+    Also handles resident location queries: "where is Reece", "where are my kids", etc.
     """
     execute_command = await VoiceAssistant.search_commands(text)
 
+    if execute_command and execute_command.get("output_json", {}).get("entity_id"):
+        execute_result = await VoiceAssistant.execute_command(execute_command)
+        return {"success": True, "message": "Command executed", "response": execute_result}
 
-    if not execute_command or not execute_command.get("output_json").get("entity_id"):
-        response = await query_llm(text)
-        return {"success": True, "message": "Response from LLM", "response": response}
+    # Check for resident location queries before LLM fallback
+    location_response = await query_resident_location(text, db)
+    if location_response:
+        return {"success": True, "message": "Resident location", "response": location_response}
 
-    execute_result = await VoiceAssistant.execute_command(execute_command)
-    return {"success": True, "message": "Command executed", "response": execute_result}
+    # Check for recent deliveries queries
+    delivery_response = await query_delivery_status(text, db)
+    if delivery_response:
+        return {"success": True, "message": "Delivery status", "response": delivery_response}
+
+    response = await query_llm(text)
+    return {"success": True, "message": "Response from LLM", "response": response}
 
 
 @router.post("/stt")
 async def speech_to_text(
     file: UploadFile = File(..., description="M4A audio file for speech recognition"),
     execute_command: bool = Query(False, description="Whether to execute the recognized command"),
-    current_user: models.User = Depends(auth.get_current_active_user)
+    current_user: models.User = Depends(auth.get_current_active_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Accepts an M4A audio file, performs speech-to-text recognition, and optionally executes the command.
@@ -81,8 +96,8 @@ async def speech_to_text(
         
         
         execute_command = await VoiceAssistant.search_commands(transcribed_text)
-        # If no command or no resolved entity_id, fall back to LLM
-        if execute_command and execute_command.get("output_json").get("entity_id"):
+        # If we have a device command with entity_id, execute it
+        if execute_command and execute_command.get("output_json", {}).get("entity_id"):
             voice_assistant_response = await VoiceAssistant.execute_command(execute_command)
             return {
                 "success": voice_assistant_response["success"],
@@ -90,15 +105,35 @@ async def speech_to_text(
                 "response": voice_assistant_response["response"],
                 "transcribed_text": transcribed_text
             }
-        else:
-            # If no structured command was found, fall back to the LLM
-            llm_response = await query_llm(transcribed_text)
+
+        # Check for resident location queries (e.g. "where is Reece", "where are my kids")
+        location_response = await query_resident_location(transcribed_text, db)
+        if location_response:
             return {
                 "success": True,
-                "message": "Response from LLM",
-                "response": llm_response,
+                "message": "Resident location",
+                "response": location_response,
                 "transcribed_text": transcribed_text
             }
+
+        # Check for recent deliveries queries (e.g. "any recent deliveries", "did I get a package")
+        delivery_response = await query_delivery_status(transcribed_text, db)
+        if delivery_response:
+            return {
+                "success": True,
+                "message": "Delivery status",
+                "response": delivery_response,
+                "transcribed_text": transcribed_text
+            }
+
+        # Fall back to the LLM for other queries
+        llm_response = await query_llm(transcribed_text)
+        return {
+            "success": True,
+            "message": "Response from LLM",
+            "response": llm_response,
+            "transcribed_text": transcribed_text
+        }
 
     
     except Exception as e:
