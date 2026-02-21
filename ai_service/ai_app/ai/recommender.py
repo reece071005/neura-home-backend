@@ -6,7 +6,7 @@ import os
 import joblib
 import pandas as pd
 
-from app.ai.dataset import InfluxDataset, DatasetWindow
+from ai_app.ai.dataset import InfluxDataset, DatasetWindow
 
 
 MODEL_PATH = os.getenv("AI_MODEL_PATH", "app/ai/artifacts/behavior_profile.joblib")

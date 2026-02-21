@@ -6,14 +6,13 @@ from typing import Any, Dict, Optional
 import joblib
 import pandas as pd
 
-from app.ai.friend_dataset import FriendInfluxDataset
+from ai_app.ai.friend_dataset import FriendInfluxDataset
 
 
-ARTIFACT_DIR = os.getenv("AI_ARTIFACT_DIR", "app/ai/artifacts/rooms")
+ARTIFACT_DIR = os.getenv("AI_ARTIFACT_DIR", "ai_app/ai/artifacts/rooms")
 
 
 class RoomTrainer:
-
     @staticmethod
     def train_room(*, room: str, days: int = 60) -> Dict[str, Any]:
         df = FriendInfluxDataset.fetch_room_state_df(room=room, days=days)
@@ -38,16 +37,10 @@ class RoomTrainer:
             domain_profiles[domain] = profile
             RoomTrainer._save_profile(room, domain, profile)
 
-        return {
-            "trained": True,
-            "room": room,
-            "days": days,
-            "domains": domain_profiles,
-        }
+        return {"trained": True, "room": room, "days": days, "domains": domain_profiles}
 
     @staticmethod
     def _train_domain(room: str, domain: str, days: int, df: pd.DataFrame) -> Dict[str, Any]:
-
         state_df = df[df["field"] == "state"].copy()
         state_df["value"] = state_df["value"].astype(str).str.lower()
 
@@ -62,7 +55,6 @@ class RoomTrainer:
             "weekend": RoomTrainer._compute_probabilities(weekend_df),
         }
 
-        # Light brightness handling
         if domain == "light":
             bright_df = df[df["field"] == "brightness"].copy()
             bright_df["brightness"] = pd.to_numeric(bright_df["value"], errors="coerce")
@@ -71,7 +63,6 @@ class RoomTrainer:
             profile["weekday"]["avg_brightness"] = RoomTrainer._compute_avg_brightness(
                 bright_df[bright_df["is_weekend"] == False]
             )
-
             profile["weekend"]["avg_brightness"] = RoomTrainer._compute_avg_brightness(
                 bright_df[bright_df["is_weekend"] == True]
             )
@@ -80,15 +71,10 @@ class RoomTrainer:
 
     @staticmethod
     def _compute_probabilities(df: pd.DataFrame) -> Dict[str, Any]:
-
         if df.empty:
-            return {
-                "active_days": 0,
-                "turn_on_probability": {h: 0.0 for h in range(24)},
-            }
+            return {"active_days": 0, "turn_on_probability": {h: 0.0 for h in range(24)}}
 
         active_days = df["date"].nunique()
-
         on_df = df[df["value"] == "on"]
 
         probs: Dict[int, float] = {}
@@ -96,10 +82,7 @@ class RoomTrainer:
             days_on_this_hour = on_df[on_df["hour"] == h]["date"].nunique()
             probs[h] = round(days_on_this_hour / active_days, 4)
 
-        return {
-            "active_days": int(active_days),
-            "turn_on_probability": probs,
-        }
+        return {"active_days": int(active_days), "turn_on_probability": probs}
 
     @staticmethod
     def _compute_avg_brightness(df: pd.DataFrame) -> Dict[int, float]:

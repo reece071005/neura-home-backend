@@ -1,23 +1,22 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import pandas as pd
 
-from app.ai.friend_dataset import FriendInfluxDataset
-from app.ai.timeseries_builder import BuildConfig, TimeSeriesBuilder
-from app.ai.xgb_light_trainer import XGBLightTrainer
-from app.ai.xgb_climate_trainer import XGBClimateTrainer
-from app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
-from app.ai.xgb_cover_trainer import XGBCoverTrainer
-from app.ai.room_config import ROOM_CONFIG
-from app.ai.suggestion_store import SuggestionStore, CooldownConfig
+from ai_app.ai.friend_dataset import FriendInfluxDataset
+from ai_app.ai.timeseries_builder import BuildConfig, TimeSeriesBuilder
+from ai_app.ai.xgb_light_trainer import XGBLightTrainer
+from ai_app.ai.xgb_climate_trainer import XGBClimateTrainer
+from ai_app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
+from ai_app.ai.xgb_cover_trainer import XGBCoverTrainer
+from ai_app.ai.room_config import ROOM_CONFIG
+from ai_app.ai.suggestion_store import SuggestionStore, CooldownConfig
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
 
 class Predictor:
     # ==============================

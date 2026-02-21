@@ -47,6 +47,9 @@ services:
       DOCKER_INFLUXDB_INIT_BUCKET: smart_home
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: neura-super-token-change-later
 
+  # =========================
+  # MAIN API (8000)
+  # =========================
   api:
     build: .
     container_name: neura_api
@@ -54,7 +57,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/neura_db
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-this-in-production}
 
-      # InfluxDB 2.x (API -> influxdb container)
+      # InfluxDB (used for logging + history endpoints)
       INFLUX_SOURCE: local
       INFLUX_READONLY: "false"
       INFLUX_URL: http://influxdb:8086
@@ -62,16 +65,56 @@ services:
       INFLUX_ORG: neura
       INFLUX_BUCKET: smart_home
 
+      # AI service internal URL (proxy uses this)
+      AI_SERVICE_URL: http://ai_service:8002
+
     ports:
       - "8000:8000"
+
     depends_on:
       db:
         condition: service_healthy
       influxdb:
         condition: service_started
+      ai_service:
+        condition: service_started
+
     volumes:
       - .:/app
+
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # =========================
+  # AI SERVICE (8002)
+  # =========================
+  ai_service:
+    build:
+      context: ./ai_service
+    container_name: neura_ai
+    ports:
+      - "8002:8002"
+
+    environment:
+      # AI needs Influx access
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: neura-super-token-change-later
+      INFLUX_ORG: neura
+      INFLUX_BUCKET: smart_home
+
+      # AI needs Redis for cooldown/feedback
+      REDIS_URL: redis://redis:6379/0
+
+    depends_on:
+      influxdb:
+        condition: service_started
+      redis:
+        condition: service_started
+
+    volumes:
+      - ./ai_service:/app
+
+    # IMPORTANT: must run ai_app.main, NOT app.main
+    command: uvicorn ai_app.main:app --host 0.0.0.0 --port 8002 --reload
 
 volumes:
   postgres_data:

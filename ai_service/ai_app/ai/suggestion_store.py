@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from app.core.redis_init import get_redis
+from ai_app.core.redis_init import get_redis
 
 
 def _utc_now() -> datetime:
@@ -18,12 +18,6 @@ class CooldownConfig:
 
 
 class SuggestionStore:
-    """
-    Handles:
-    - Cooldown / anti-spam using Redis TTL
-    - Feedback logging (accepted/declined/dismissed)
-    """
-
     @staticmethod
     async def is_in_cooldown(*, room: str, suggestion_type: str, entity_id: str) -> bool:
         r = get_redis()
@@ -53,10 +47,6 @@ class SuggestionStore:
         decision: str,
         meta: Optional[dict[str, Any]] = None,
     ) -> None:
-        """
-        Store feedback in Redis list.
-        Later you can move this to Postgres.
-        """
         r = get_redis()
         meta = meta or {}
 
@@ -70,14 +60,9 @@ class SuggestionStore:
             "meta": meta,
         }
 
-        # global list (demo)
         await r.lpush("ai:feedback", json.dumps(payload))
-
-        # also per-user list
         await r.lpush(f"ai:feedback:user:{user_id}", json.dumps(payload))
 
     @staticmethod
     def _cooldown_key(*, room: str, suggestion_type: str, entity_id: str) -> str:
-        # Example:
-        # ai:cooldown:guest_room:light:guest_room
         return f"ai:cooldown:{room}:{suggestion_type}:{entity_id}"

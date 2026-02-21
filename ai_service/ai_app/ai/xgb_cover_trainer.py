@@ -10,11 +10,11 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor
 
-from app.ai.friend_dataset import FriendInfluxDataset
-from app.ai.timeseries_builder import BuildConfig, TimeSeriesBuilder
+from ai_app.ai.friend_dataset import FriendInfluxDataset
+from ai_app.ai.timeseries_builder import BuildConfig, TimeSeriesBuilder
 
 
-ARTIFACT_DIR = os.getenv("AI_ARTIFACT_DIR_XGB", "app/ai/artifacts/rooms_xgb")
+ARTIFACT_DIR = os.getenv("AI_ARTIFACT_DIR_XGB", "ai_app/ai/artifacts/rooms_xgb")
 
 
 @dataclass

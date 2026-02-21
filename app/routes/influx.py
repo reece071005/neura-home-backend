@@ -11,6 +11,8 @@ from app.services.influx_logger import InfluxLogger
 from app.core.homeassistant import DeviceControl
 from app import auth, models
 
+from app.services.influx_dataset import InfluxDataset, DatasetWindow
+
 
 router = APIRouter(prefix="/influx", tags=["InfluxDB"])
 
@@ -93,8 +95,6 @@ async def device_history(
     limit: int = Query(200, ge=1, le=2000),
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
-    from app.ai.dataset import InfluxDataset, DatasetWindow
-
     hours = max(1, int((minutes + 59) // 60))
     df = InfluxDataset.fetch_device_state_df(entity_id=entity_id, window=DatasetWindow(hours=hours))
 
