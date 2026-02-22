@@ -1,8 +1,7 @@
-from zeroconf import Zeroconf, ServiceBrowser
-import socket
 import time
 import asyncio
-from typing import List, Dict
+import aiohttp
+from typing import List, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,167 +11,170 @@ from app import models, schemas, auth
 from app.database import get_db
 from app.core.encryption import encrypt_secret, decrypt_secret
 
-HOME_ASSISTANT_PORT = 8123
-SERVICE_TYPE = "_http._tcp.local."
 
 router = APIRouter(prefix="/hub", tags=["hub"])
 
 
-class HAListener:
-    def __init__(self):
-        self.instances: List[Dict[str, object]] = []
+async def get_admin_or_none_for_home_assistant(
+    db: AsyncSession = Depends(get_db),
+    optional_admin: Optional[models.User] = Depends(auth.get_current_admin_user_optional),
+) -> Optional[models.User]:
+    """
+    For initial setup (no Home Assistant config in DB): allow unauthenticated access (returns None).
+    Once HA is configured: require admin; 401 if no/invalid token.
+    """
+    result = await db.execute(
+        select(models.Configuration).where(models.Configuration.key == "home_assistant_url")
+    )
+    config = result.scalar_one_or_none()
+    has_url = (
+        config is not None
+        and config.value
+        and isinstance(config.value, dict)
+        and config.value.get("url")
+    )
+    if not has_url:
+        return None
+    if optional_admin is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to view or change Home Assistant configuration",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return optional_admin
 
-    def remove_service(self, zeroconf, type, name):
-        pass
 
-    def add_service(self, zeroconf, type, name):
-        info = zeroconf.get_service_info(type, name)
-        if info:
-            for addr in info.addresses:
-                ip = socket.inet_ntoa(addr)
-                port = info.port
+def _normalize_url(url: str) -> str:
+    """Strip trailing slash for consistent storage."""
+    return url.rstrip("/") if url else url
 
-                # Filter for Home Assistant default port
-                if port == HOME_ASSISTANT_PORT:
-                    self.instances.append(
-                        {
-                            "name": name,
-                            "ip": ip,
-                            "port": port,
-                            "base_url": f"http://{ip}:{port}",
-                        }
+
+async def _validate_home_assistant_url(url: str) -> None:
+    """
+    Verify the URL is reachable by requesting the Home Assistant API root.
+    Raises HTTPException if the URL is invalid or unreachable.
+    """
+    base = _normalize_url(url)
+    if not base:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="URL cannot be empty",
+        )
+    check_url = f"{base}/api/"
+    try:
+        timeout = aiohttp.ClientTimeout(total=10)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(check_url) as resp:
+                # 200 (API running), 401 (auth required), 405 (method) all indicate valid HA
+                if resp.status >= 500:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Home Assistant returned server error (HTTP {resp.status})",
                     )
+                return
+    except aiohttp.ClientError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not reach Home Assistant at {url}: {e!s}",
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Timeout connecting to Home Assistant at {url}",
+        )
 
 
-def _discover_home_assistant_sync(timeout: int = 5) -> list[dict]:
-    """Blocking zeroconf discovery; run in a thread from async code."""
-    zeroconf = Zeroconf()
-    listener = HAListener()
-    ServiceBrowser(zeroconf, SERVICE_TYPE, listener)
-
-    # Allow some time for services to be discovered
-    time.sleep(timeout)
-
-    zeroconf.close()
-    return listener.instances
-
-
-@router.get("/discover", response_model=list[schemas.HomeAssistantInstance])
-async def discover_home_assistant(
-    timeout: int = 5,
-    current_user: models.User = Depends(auth.get_current_active_user),
-):
-    """
-    Discover Home Assistant instances on the local network and return them
-    as a list of devices (name, IP, port, base_url).
-    """
-    instances = await asyncio.to_thread(_discover_home_assistant_sync, timeout)
-    return instances
-
-
-@router.get("/home-assistant-url", response_model=schemas.HomeAssistantUrl)
-async def get_home_assistant_url(
+@router.get("/home-assistant", response_model=schemas.HomeAssistantConfigResponse)
+async def get_home_assistant_config(
     db: AsyncSession = Depends(get_db),
-    current_admin: models.User = Depends(auth.get_current_admin_user),
+    _admin: Optional[models.User] = Depends(get_admin_or_none_for_home_assistant),
 ):
     """
-    Retrieve the stored Home Assistant base URL.
-    Admin-only since this is sensitive configuration.
+    Retrieve the stored Home Assistant URL and secret (if configured).
+    No auth required when HA is not yet configured (initial setup); admin-only once configured.
     """
+    # URL
     result = await db.execute(
         select(models.Configuration).where(models.Configuration.key == "home_assistant_url")
     )
-    config = result.scalar_one_or_none()
+    url_config = result.scalar_one_or_none()
+    url = None
+    if url_config and url_config.value and "url" in url_config.value:
+        url = url_config.value["url"]
 
-    if not config or not config.value or "url" not in config.value:
+    # Secret
+    result = await db.execute(
+        select(models.Configuration).where(models.Configuration.key == "home_assistant_secret")
+    )
+    secret_config = result.scalar_one_or_none()
+    secret = None
+    if secret_config and secret_config.value and "ciphertext" in secret_config.value:
+        secret = decrypt_secret(secret_config.value["ciphertext"])
+
+    if not url:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Home Assistant URL not configured",
+            detail="Home Assistant not configured",
         )
 
-    return schemas.HomeAssistantUrl(url=config.value["url"])
+    return schemas.HomeAssistantConfigResponse(url=url, secret=secret)
 
 
-@router.post("/home-assistant-url")
-async def save_home_assistant_url(
-    payload: schemas.HomeAssistantUrl,
+@router.post("/home-assistant", response_model=schemas.HomeAssistantConfigResponse)
+async def save_home_assistant_config(
+    payload: schemas.HomeAssistantConfig,
     db: AsyncSession = Depends(get_db),
-    current_admin: models.User = Depends(auth.get_current_admin_user),
+    _admin: Optional[models.User] = Depends(get_admin_or_none_for_home_assistant),
 ):
     """
-    Save the Home Assistant base URL into the configurations table.
-    This is admin-only since it affects system-wide behavior.
+    Save the Home Assistant URL and optionally the secret.
+    Validates that the URL is reachable before saving.
+    No auth required when HA is not yet configured (initial setup); admin-only once configured.
     """
+    await _validate_home_assistant_url(payload.url)
+    url_value = _normalize_url(payload.url)
+
+    # Save URL
     result = await db.execute(
         select(models.Configuration).where(models.Configuration.key == "home_assistant_url")
     )
-    config = result.scalar_one_or_none()
-
-    if config:
-        config.value = dict(config.value or {})
-        config.value["url"] = payload.url
+    url_config = result.scalar_one_or_none()
+    if url_config:
+        url_config.value = dict(url_config.value or {})
+        url_config.value["url"] = url_value
     else:
-        config = models.Configuration(key="home_assistant_url", value={"url": payload.url})
-        db.add(config)
+        url_config = models.Configuration(key="home_assistant_url", value={"url": url_value})
+        db.add(url_config)
+
+    # Save secret only if provided
+    if payload.secret is not None:
+        encrypted = encrypt_secret(payload.secret)
+        result = await db.execute(
+            select(models.Configuration).where(models.Configuration.key == "home_assistant_secret")
+        )
+        secret_config = result.scalar_one_or_none()
+        if secret_config:
+            secret_config.value = dict(secret_config.value or {})
+            secret_config.value["ciphertext"] = encrypted
+        else:
+            secret_config = models.Configuration(
+                key="home_assistant_secret",
+                value={"ciphertext": encrypted},
+            )
+            db.add(secret_config)
 
     await db.commit()
-    await db.refresh(config)
+    await db.refresh(url_config)
 
-    return {"key": config.key, "value": config.value}
-
-
-@router.post("/home-assistant-secret")
-async def save_home_assistant_secret(
-    payload: schemas.HomeAssistantSecret,
-    db: AsyncSession = Depends(get_db),
-    current_admin: models.User = Depends(auth.get_current_admin_user),
-):
-    """
-    Store the Home Assistant access token / secret in encrypted form.
-    Admin-only, since this grants control of the Home Assistant instance.
-    """
-    encrypted = encrypt_secret(payload.secret)
-
-    result = await db.execute(
-        select(models.Configuration).where(models.Configuration.key == "home_assistant_secret")
-    )
-    config = result.scalar_one_or_none()
-
-    if config:
-        config.value = dict(config.value or {})
-        config.value["ciphertext"] = encrypted
+    secret_out = None
+    if payload.secret is not None:
+        secret_out = payload.secret
     else:
-        config = models.Configuration(
-            key="home_assistant_secret",
-            value={"ciphertext": encrypted},
+        result = await db.execute(
+            select(models.Configuration).where(models.Configuration.key == "home_assistant_secret")
         )
-        db.add(config)
+        secret_config = result.scalar_one_or_none()
+        if secret_config and secret_config.value and "ciphertext" in secret_config.value:
+            secret_out = decrypt_secret(secret_config.value["ciphertext"])
 
-    await db.commit()
-    await db.refresh(config)
-
-    return {"key": config.key}
-
-
-@router.get("/home-assistant-secret", response_model=schemas.HomeAssistantSecretResponse)
-async def get_home_assistant_secret(
-    db: AsyncSession = Depends(get_db),
-    current_admin: models.User = Depends(auth.get_current_admin_user),
-):
-    """
-    Retrieve and decrypt the stored Home Assistant secret.
-    Admin-only – treat the returned value as highly sensitive.
-    """
-    result = await db.execute(
-        select(models.Configuration).where(models.Configuration.key == "home_assistant_secret")
-    )
-    config = result.scalar_one_or_none()
-
-    if not config or not config.value or "ciphertext" not in config.value:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Home Assistant secret not configured",
-        )
-
-    secret = decrypt_secret(config.value["ciphertext"])
-    return schemas.HomeAssistantSecretResponse(secret=secret)
+    return schemas.HomeAssistantConfigResponse(url=url_value, secret=secret_out)

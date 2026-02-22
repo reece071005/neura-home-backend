@@ -177,6 +177,18 @@ class HomeAssistantSecretResponse(BaseModel):
     secret: str
 
 
+class HomeAssistantConfig(BaseModel):
+    """Combined payload for Home Assistant URL and optional secret."""
+    url: str
+    secret: Optional[str] = None
+
+
+class HomeAssistantConfigResponse(BaseModel):
+    """Combined response: URL and decrypted secret (if configured)."""
+    url: str
+    secret: Optional[str] = None
+
+
 # ---------- Userfaces ----------
 
 class UserfaceResponse(BaseModel):
@@ -212,3 +224,32 @@ class CameraResponse(BaseModel):
 
 class CameraDelete(BaseModel):
     entity_id: str
+
+
+# ---------- Room configurations ----------
+
+class RoomBase(BaseModel):
+    name: str
+    entity_ids: list[str] = []
+
+
+class RoomCreate(RoomBase):
+    pass
+
+
+class RoomUpdate(BaseModel):
+    name: Optional[str] = None
+    entity_ids: Optional[list[str]] = None
+
+
+class RoomResponse(BaseModel):
+    id: int
+    user_id: int
+    username: str
+    name: str
+    entity_ids: list[str]
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

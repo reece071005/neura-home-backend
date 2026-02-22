@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.types import Enum as SqlEnum
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from app.database import Base
 import enum
 
@@ -61,3 +62,25 @@ class Configuration(Base):
     value = Column(JSON, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class Room(Base):
+    """User-defined room with a unique name and list of device entity IDs.
+    Each entity_id can belong to at most one room per user (enforced in API).
+    """
+    __tablename__ = "rooms"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_room_user_name"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    entity_ids = Column(JSON, nullable=False, default=list)  # list of entity_id strings
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", backref="rooms")
+
+    @property
+    def username(self) -> str | None:
+        """Username of the user who owns this room (when user is loaded)."""
+        return self.user.username if self.user else None
