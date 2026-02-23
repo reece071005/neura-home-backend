@@ -234,10 +234,11 @@ class RoomBase(BaseModel):
 
 
 class RoomCreate(RoomBase):
-    pass
+    user_id: Optional[int] = None
 
 
 class RoomUpdate(BaseModel):
+    user_id: Optional[int] = None
     name: Optional[str] = None
     entity_ids: Optional[list[str]] = None
 

@@ -178,7 +178,6 @@ async def _producer(
                 except asyncio.CancelledError:
                     raise
                 except Exception:
-                    # On any error, keep using the last known list.
                     pass
                 finally:
                     last_camera_refresh = now

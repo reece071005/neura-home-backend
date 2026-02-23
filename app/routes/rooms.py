@@ -26,10 +26,9 @@ async def list_rooms(
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
-    """List all rooms for the current user."""
+    """List all rooms."""
     result = await db.execute(
         select(models.Room)
-        .where(models.Room.user_id == current_user.id)
         .order_by(models.Room.name)
         .options(selectinload(models.Room.user))
     )
@@ -43,13 +42,10 @@ async def get_room(
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
-    """Get a room by id. Room must belong to the current user."""
+    """Get a room by id."""
     result = await db.execute(
         select(models.Room)
-        .where(
-            models.Room.id == room_id,
-            models.Room.user_id == current_user.id,
-        )
+        .where(models.Room.id == room_id)
         .options(selectinload(models.Room.user))
     )
     room = result.scalar_one_or_none()
@@ -65,25 +61,27 @@ async def create_room(
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
     """
-    Create a room. Name must be unique for this user.
-    No entity_id may already belong to another room for this user.
-    Non-admin users can only have one room; admins can create multiple rooms.
+    Create a room. Name must be unique for the owner.
+    No entity_id may already belong to another room for the owner.
+    The owner of the room is determined by payload.user_id (if provided) or defaults to the current user.
     """
-    # Non-admin users are limited to one room
-    if current_user.role != models.UserRole.admin:
-        result_existing = await db.execute(
-            select(models.Room).where(models.Room.user_id == current_user.id).limit(1)
-        )
-        if result_existing.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Users can only have one room. Contact an admin to create additional rooms.",
-            )
+    # Determine the owner of the room: explicit user_id or current user
+    owner_user_id = payload.user_id or current_user.id
 
-    # Unique name per user
+    owner_result = await db.execute(
+        select(models.User).where(models.User.id == owner_user_id)
+    )
+    owner_user = owner_result.scalar_one_or_none()
+    if not owner_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"User with id {owner_user_id} does not exist",
+        )
+
+    # Unique name per owner
     result_name = await db.execute(
         select(models.Room).where(
-            models.Room.user_id == current_user.id,
+            models.Room.user_id == owner_user_id,
             models.Room.name == payload.name,
         )
     )
@@ -93,9 +91,9 @@ async def create_room(
             detail=f"Room with name '{payload.name}' already exists",
         )
 
-    # Entity uniqueness: no entity may be in any other room
+    # Entity uniqueness: no entity may be in any other room for this owner
     result_rooms = await db.execute(
-        select(models.Room).where(models.Room.user_id == current_user.id)
+        select(models.Room).where(models.Room.user_id == owner_user_id)
     )
     other_rooms = result_rooms.scalars().all()
     used_entities = _entity_ids_in_other_rooms(other_rooms, exclude_room_id=None)
@@ -108,14 +106,14 @@ async def create_room(
         )
 
     room = models.Room(
-        user_id=current_user.id,
+        user_id=owner_user_id,
         name=payload.name,
         entity_ids=new_entity_ids,
     )
     db.add(room)
     await db.commit()
     await db.refresh(room)
-    room.user = current_user  # for RoomResponse.username
+    room.user = owner_user  # for RoomResponse.username
     return room
 
 
@@ -127,52 +125,71 @@ async def update_room(
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
     """
-    Update a room. Name must remain unique for this user.
-    Updated entity_ids must not include any entity already in another room (excluding this one).
+    Update a room. Name must remain unique for the room owner.
+    Updated entity_ids must not include any entity already in another room for the same owner (excluding this one).
+    The room owner can also be changed by providing payload.user_id.
     """
     result = await db.execute(
-        select(models.Room).where(
-            models.Room.id == room_id,
-            models.Room.user_id == current_user.id,
-        )
+        select(models.Room).where(models.Room.id == room_id)
     )
     room = result.scalar_one_or_none()
     if not room:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
 
-    if payload.name is not None:
-        result_name = await db.execute(
-            select(models.Room).where(
-                models.Room.user_id == current_user.id,
-                models.Room.name == payload.name,
-                models.Room.id != room_id,
-            )
-        )
-        if result_name.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Room with name '{payload.name}' already exists",
-            )
-        room.name = payload.name
+    # Determine the (potentially new) owner of the room
+    new_user_id = payload.user_id if payload.user_id is not None else room.user_id
 
-    if payload.entity_ids is not None:
-        result_rooms = await db.execute(
-            select(models.Room).where(models.Room.user_id == current_user.id)
+    owner_result = await db.execute(
+        select(models.User).where(models.User.id == new_user_id)
+    )
+    owner_user = owner_result.scalar_one_or_none()
+    if not owner_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"User with id {new_user_id} does not exist",
         )
-        other_rooms = result_rooms.scalars().all()
-        used_entities = _entity_ids_in_other_rooms(other_rooms, exclude_room_id=room_id)
-        new_entity_ids = list(dict.fromkeys(payload.entity_ids))
-        conflicting = [e for e in new_entity_ids if e in used_entities]
-        if conflicting:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Entity IDs already in another room: {conflicting}",
-            )
-        room.entity_ids = new_entity_ids
+
+    # Name uniqueness for the new owner
+    new_name = payload.name if payload.name is not None else room.name
+    result_name = await db.execute(
+        select(models.Room).where(
+            models.Room.user_id == new_user_id,
+            models.Room.name == new_name,
+            models.Room.id != room_id,
+        )
+    )
+    if result_name.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Room with name '{new_name}' already exists",
+        )
+
+    # Entity uniqueness for the new owner
+    effective_entity_ids = (
+        list(dict.fromkeys(payload.entity_ids))
+        if payload.entity_ids is not None
+        else (room.entity_ids or [])
+    )
+    result_rooms = await db.execute(
+        select(models.Room).where(models.Room.user_id == new_user_id)
+    )
+    other_rooms = result_rooms.scalars().all()
+    used_entities = _entity_ids_in_other_rooms(other_rooms, exclude_room_id=room_id)
+    conflicting = [e for e in effective_entity_ids if e in used_entities]
+    if conflicting:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Entity IDs already in another room: {conflicting}",
+        )
+
+    # Apply changes
+    room.user_id = new_user_id
+    room.name = new_name
+    room.entity_ids = effective_entity_ids
 
     await db.commit()
     await db.refresh(room)
-    room.user = current_user  # for RoomResponse.username
+    room.user = owner_user  # for RoomResponse.username
     return room
 
 
@@ -182,13 +199,10 @@ async def delete_room(
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
-    """Delete a room. Room must belong to the current user."""
+    """Delete a room."""
     result = await db.execute(
-        select(models.Room).where(
-            models.Room.id == room_id,
-            models.Room.user_id == current_user.id,
-        )
-    )
+        select(models.Room).where(models.Room.id == room_id)
+   )
     room = result.scalar_one_or_none()
     if not room:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
