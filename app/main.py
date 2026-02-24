@@ -11,6 +11,7 @@ from app.core.redis_init import init_redis, close_redis
 from app.core.cache_management import CacheManagement
 from app.core.qdrant_init import init_qdrant, close_qdrant
 from app.core.influxdb_init import init_influx, close_influx
+from app.routes import automation
 
 
 @asynccontextmanager
@@ -42,7 +43,7 @@ app.include_router(homecontrollers.router)
 app.include_router(voice.router)
 app.include_router(influx_routes.router)
 app.include_router(ai_proxy.router)
-
+app.include_router(automation.router)
 @app.get("/")
 async def read_root():
     return {"message": "Welcome to Neura API"}

@@ -1,23 +1,18 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-
 import os
 import pandas as pd
-
 from ai_app.core.influxdb_init import get_influx_query_api
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
-
 @dataclass
 class DatasetWindow:
     hours: int = 168
-
 
 class InfluxDataset:
     @staticmethod
