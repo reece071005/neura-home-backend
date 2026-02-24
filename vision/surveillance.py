@@ -14,9 +14,7 @@ import asyncpg
 import cv2
 import numpy as np
 
-# Config is in same package
 from config import (
-    API_URL,
     HA_HEADERS,
     HOME_ASSISTANT_URL,
     VISION_INTERVAL_SECONDS,
@@ -56,22 +54,79 @@ def _format_detection_message(detections: list, camera_entity: str) -> str:
     return ". ".join(parts) if parts else f"Person detected at {location}"
 
 
-async def _post_notification(camera_entity: str, image_path: str, message: str) -> None:
-    """POST detection notification to main API to create DB entry."""
-    if not API_URL:
-        return
-    url = f"{API_URL}/vision/notification"
+async def _create_detection_notification_db(
+    camera_entity: str,
+    image_path: str,
+    message: str,
+) -> int | None:
+    """
+    Create a detection notification directly in Postgres and return its ID.
+    This bypasses the main API HTTP endpoint.
+    """
+    if not VISION_DATABASE_URL:
+        print("[surveillance] VISION_DATABASE_URL is not set; cannot create notifications")
+        return None
+
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                url,
-                json={"message": message, "camera_entity": camera_entity, "image_path": image_path},
-                timeout=aiohttp.ClientTimeout(total=5),
-            ) as resp:
-                if resp.status != 200:
-                    pass  # log and continue
-    except Exception:
-        pass
+        conn = await asyncpg.connect(VISION_DATABASE_URL)
+    except Exception as e:
+        print(f"[surveillance] Failed to connect to DB for notification insert: {e!r}")
+        return None
+
+    try:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO detection_notifications (message, camera_entity, image_path)
+            VALUES ($1, $2, $3)
+            RETURNING id
+            """,
+            message,
+            camera_entity,
+            image_path,
+        )
+        if row:
+            return int(row["id"])
+        return None
+    except Exception as e:
+        print(f"[surveillance] Failed to insert detection notification: {e!r}")
+        return None
+    finally:
+        await conn.close()
+
+
+async def _update_detection_notification_db(
+    notification_id: int,
+    image_path: str,
+    message: str,
+) -> None:
+    """
+    Update an existing detection notification (image/message) directly in Postgres.
+    """
+    if not VISION_DATABASE_URL:
+        print("[surveillance] VISION_DATABASE_URL is not set; cannot update notifications")
+        return
+
+    try:
+        conn = await asyncpg.connect(VISION_DATABASE_URL)
+    except Exception as e:
+        print(f"[surveillance] Failed to connect to DB for notification update: {e!r}")
+        return
+
+    try:
+        await conn.execute(
+            """
+            UPDATE detection_notifications
+            SET message = $1, image_path = $2
+            WHERE id = $3
+            """,
+            message,
+            image_path,
+            notification_id,
+        )
+    except Exception as e:
+        print(f"[surveillance] Failed to update detection notification {notification_id}: {e!r}")
+    finally:
+        await conn.close()
 
 
 async def _fetch_camera_entities_from_db() -> list[str] | None:
@@ -99,7 +154,6 @@ async def _fetch_camera_entities_from_db() -> list[str] | None:
             print("[surveillance] No 'tracked_cameras' configuration row found; returning empty list")
             return []
         value = row["value"]
-        # `value` may be stored as JSON or as a JSON-encoded string; handle both.
         if isinstance(value, str):
             try:
                 value = json.loads(value)
@@ -132,7 +186,6 @@ async def _fetch_camera_entities(session: aiohttp.ClientSession) -> list[str] | 
         print(f"[surveillance] Using camera entities from DB: {db_entities}")
         return db_entities
     print("[surveillance] DB camera fetch returned None; keeping existing camera list")
-    # If DB not reachable, keep existing camera list (return None so caller leaves it unchanged)
     return None
 
 
@@ -160,14 +213,11 @@ async def _producer(
     - put (camera_entity, image) on the queue
     """
     async with aiohttp.ClientSession() as session:
-        # Keep a local list that can be updated from the API.
         current_camera_entities: list[str] = list(camera_entities)
-        # Refresh the camera list from the API at most every 30 seconds.
         camera_refresh_interval = 30.0
         last_camera_refresh: float = 0.0
 
         while True:
-            # Periodically refresh camera list from main API.
             now = asyncio.get_event_loop().time()
             if now - last_camera_refresh >= camera_refresh_interval:
                 try:
@@ -204,21 +254,17 @@ async def _consumer(
 ) -> None:
     """Read results from the queue; if any detections, save annotated image to notify_dir.
 
-    Also applies a small de-duplication window so that repeated, identical
-    detections from the same camera within a short time do not create
-    multiple near-identical notification images.
+    Keeps a single "active" notification per camera and detection signature.
+    As long as the set/count of detected labels at a camera stays the same
+    (e.g., one stranger present for an hour), the same DB notification row is
+    updated with the latest image. When the composition changes (e.g., a second
+    stranger appears, a kid/resident is added), a new notification row is
+    created.
     """
     notify_path = Path(notify_dir)
     notify_path.mkdir(parents=True, exist_ok=True)
 
-    # Track the last time we created a notification for a given
-    # (camera_entity, labels_signature). This is in-memory only and is
-    # reset when the process restarts, which is fine for our use case.
-    last_notification_times: dict[tuple[str, str], datetime] = {}
-    # Minimum time between notifications with the same labels for the same camera.
-    # This prevents duplicate images/notifications when the model returns
-    # similar detections on consecutive frames.
-    duplicate_suppress_seconds = 30
+    last_notifications: dict[str, tuple[str, int, str]] = {}
 
     while not stop_event.is_set():
         try:
@@ -236,17 +282,9 @@ async def _consumer(
         if not detections or annotated is None:
             continue
 
-        # Build a stable "labels signature" for this detection result so we can
-        # suppress identical notifications in a short time window.
+
         labels_signature = "|".join(sorted(d.get("label", "") for d in detections))
-        now = datetime.utcnow()
-        key = (str(request_id), labels_signature)
-        last_ts = last_notification_times.get(key)
-        if last_ts is not None and (now - last_ts).total_seconds() < duplicate_suppress_seconds:
-            # Too soon since the last identical notification; skip creating another
-            # image/notification to avoid duplicates.
-            continue
-        last_notification_times[key] = now
+        camera_id = str(request_id)
 
         safe_name = str(request_id).replace(".", "_")
         ts = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
@@ -254,9 +292,40 @@ async def _consumer(
         out_path = notify_path / filename
         cv2.imwrite(str(out_path), annotated)
 
-        # Build message and create DB entry via main API (e.g. "John is detected at front door")
+        # Build message "John is detected at front door"
         message = _format_detection_message(detections, request_id)
-        await _post_notification(request_id, filename, message)
+
+        # Decide whether to update or create notification
+        existing = last_notifications.get(camera_id)
+        notification_id: int | None = None
+
+        if existing is not None:
+            existing_signature, existing_id, old_image_path = existing
+            if existing_signature == labels_signature:
+                # Same composition of detections at this camera
+                # Update the existing notification and delete the previous image file
+                try:
+                    old_path = notify_path / old_image_path
+                    if old_path.exists():
+                        old_path.unlink()
+                except Exception as e:
+                    print(f"[surveillance] Failed to delete old notification image {old_image_path!r}: {e!r}")
+
+                await _update_detection_notification_db(existing_id, filename, message)
+                notification_id = existing_id
+
+        # If we didn't find a valid cached notification for this signature, insert a new one.
+        if notification_id is None:
+            created_id = await _create_detection_notification_db(request_id, filename, message)
+            if created_id is not None:
+                notification_id = created_id
+
+        # Update cache entry so that continuous presence of the same
+        # person(s) (e.g., a stranger at the door) causes updates to the same
+        # DB notification, and any change in composition (e.g., new stranger
+        # joins) creates a fresh notification.
+        if notification_id is not None:
+            last_notifications[camera_id] = (labels_signature, notification_id, filename)
 
 
 async def run_surveillance(
