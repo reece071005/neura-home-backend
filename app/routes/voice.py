@@ -11,6 +11,8 @@ from app.voiceassistant.llm import query_llm
 from app.voiceassistant.location import query_resident_location, query_delivery_status
 from app.database import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.responses import StreamingResponse
+import edge_tts
 
 router = APIRouter(prefix="/voice", tags=["Voice Assistant"])
 
@@ -45,6 +47,44 @@ async def voice_command(
     response = await query_llm(text)
     return {"success": True, "message": "Response from LLM", "response": response}
 
+
+
+async def tts_stream(text: str):
+    communicate = edge_tts.Communicate(
+        text,
+        voice="en-US-AriaNeural"
+    )
+
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            yield chunk["data"]
+
+@router.get(
+    "/tts",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "content": {
+                "audio/mpeg": {
+                    "schema": {"type": "string", "format": "binary"},
+                }
+            },
+            "description": "MP3 audio stream",
+        }
+    },
+)
+async def stream_tts(
+    text: str = Query(..., description="Text to synthesize (MP3)"),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    """
+    Stream audio of the text directly to frontend.
+    """
+    return StreamingResponse(
+        tts_stream(text),
+        media_type="audio/mpeg",
+        headers={"Content-Disposition": 'inline; filename="tts.mp3"'},
+    )
 
 @router.post("/stt")
 async def speech_to_text(

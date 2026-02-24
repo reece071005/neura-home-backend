@@ -14,8 +14,9 @@ pydantic[email]==2.5.0
 asyncpg==0.29.0
 vosk==0.3.44
 sounddevice==0.4.6
-aiohttp
+aiohttp==3.13.2
 pydub==0.25.1
 redis==7.1.0
-openai
-zeroconf
+openai==2.21.0
+zeroconf==0.148.0
+edge-tts==7.2.7
