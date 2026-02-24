@@ -16,22 +16,6 @@ services:
       timeout: 5s
       retries: 5
 
-  redis:
-    image: redis:alpine
-    container_name: neura_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: neura_qdrant
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/data
-
   influxdb:
     image: influxdb:2.7
     container_name: neura_influxdb
@@ -47,17 +31,22 @@ services:
       DOCKER_INFLUXDB_INIT_BUCKET: smart_home
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: neura-super-token-change-later
 
-  # =========================
-  # MAIN API (8000)
-  # =========================
+  redis:
+    image: redis:alpine
+    container_name: neura_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
   api:
     build: .
     container_name: neura_api
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/neura_db
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-this-in-production}
+      NOTIFY_DIR: /app/notify
 
-      # InfluxDB (used for logging + history endpoints)
       INFLUX_SOURCE: local
       INFLUX_READONLY: "false"
       INFLUX_URL: http://influxdb:8086
@@ -65,7 +54,6 @@ services:
       INFLUX_ORG: neura
       INFLUX_BUCKET: smart_home
 
-      # AI service internal URL (proxy uses this)
       AI_SERVICE_URL: http://ai_service:8002
 
     ports:
@@ -76,17 +64,28 @@ services:
         condition: service_healthy
       influxdb:
         condition: service_started
-      ai_service:
-        condition: service_started
 
     volumes:
       - .:/app
+      - ./notify:/app/notify
 
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-  # =========================
-  # AI SERVICE (8002)
-  # =========================
+  vision:
+    build:
+      context: .
+      dockerfile: vision/Dockerfile
+    container_name: neura_vision
+    environment:
+      VISION_RESIDENTS_DIR: /app/residents
+      NOTIFY_DIR: /app/notify
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./vision:/app
+      - ./residents:/app/residents
+      - ./notify:/app/notify
+
   ai_service:
     build:
       context: ./ai_service
@@ -95,13 +94,10 @@ services:
       - "8002:8002"
 
     environment:
-      # AI needs Influx access
       INFLUX_URL: http://influxdb:8086
       INFLUX_TOKEN: neura-super-token-change-later
       INFLUX_ORG: neura
       INFLUX_BUCKET: smart_home
-
-      # AI needs Redis for cooldown/feedback
       REDIS_URL: redis://redis:6379/0
 
     depends_on:
@@ -113,11 +109,9 @@ services:
     volumes:
       - ./ai_service:/app
 
-    # IMPORTANT: must run ai_app.main, NOT app.main
     command: uvicorn ai_app.main:app --host 0.0.0.0 --port 8002 --reload
 
 volumes:
   postgres_data:
   redis_data:
-  qdrant_data:
   influxdb_data:

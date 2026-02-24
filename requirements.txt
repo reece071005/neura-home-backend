@@ -17,6 +17,9 @@ sounddevice==0.4.6
 aiohttp
 pydub==0.25.1
 redis==7.1.0
+openai==2.21.0
+zeroconf==0.148.0
+edge-tts==7.2.7
 qdrant-client==1.16.2
 fastembed==0.7.4
 influxdb-client

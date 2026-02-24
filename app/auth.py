@@ -17,6 +17,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 1440 # 24 hours
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -121,3 +122,26 @@ async def get_current_admin_user(
             detail="Admin privileges required",
         )
     return current_user
+
+
+async def get_current_admin_user_optional(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    db: AsyncSession = Depends(get_db),
+) -> Optional[models.User]:
+    """Return the current user if a valid admin token is present, else None. Never raises."""
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if not username:
+            return None
+    except JWTError:
+        return None
+    result = await db.execute(
+        select(models.User).where(models.User.username == username)
+    )
+    user = result.scalar_one_or_none()
+    if not user or not user.is_active or user.role != models.UserRole.admin:
+        return None
+    return user

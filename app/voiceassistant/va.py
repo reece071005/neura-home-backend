@@ -1,10 +1,6 @@
 import json
+import re
 from typing import Any
-
-from fastembed import TextEmbedding
-
-from app.config import QDRANT_COLLECTION_NAME
-from app.core.qdrant_init import get_qdrant
 from app.core.homeassistant import (
     LightControl,
     CoverControl,
@@ -12,7 +8,9 @@ from app.core.homeassistant import (
     FanControl,
 )
 from app import schemas
-
+from app.voiceassistant.intentparser import parse_command
+from app.core.redis_init import get_redis
+from app.voiceassistant.llm import query_llm
 
 class VoiceAssistant:
     """
@@ -28,18 +26,17 @@ class VoiceAssistant:
 
     @staticmethod
     async def search_commands(query: str) -> dict | None:
-        qdrant = get_qdrant()
-        embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5")
-        embedding = list(embedding_model.embed(query))[0]
-        hits = await qdrant.query_points(
-            collection_name=QDRANT_COLLECTION_NAME,
-            query=embedding,
-            limit=1,
-        )
-        print(hits)
-        if not hits.points:
+        """
+        Use the LLM to search for the best matching command.
+        """
+        redis = await get_redis()
+        controllable_devices = await redis.get("controllable_devices")
+        if not controllable_devices:
             return None
-        return hits.points[0].payload
+        controllable_devices = json.loads(controllable_devices)
+        command = parse_command(query, controllable_devices)
+        return command
+        
 
     @staticmethod
     async def execute_command(command: dict) -> dict[str, Any]:

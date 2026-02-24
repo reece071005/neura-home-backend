@@ -25,3 +25,8 @@ app/ai/artifacts/**
 *.json
 
 
+
+/residents/
+vision/notify/
+notify/
+test.py
