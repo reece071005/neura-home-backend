@@ -7,7 +7,7 @@ import os
 
 import pandas as pd
 
-from app.core.influxdb_init import get_influx_query_api
+from ai_app.core.influxdb_init import get_influx_query_api
 
 
 def _utc_now() -> datetime:

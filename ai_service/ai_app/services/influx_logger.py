@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from influxdb_client import Point, WritePrecision
-from app.core.influxdb_init import get_influx_write_api
+from ai_app.core.influxdb_init import get_influx_write_api
 import os
 
 

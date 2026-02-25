@@ -15,13 +15,10 @@ from app.routes import (
     rooms,
     automation,
 )
-from app.routes import influx as influx_routes
 from app.routes import ai_proxy
 
 from app.core.redis_init import init_redis, close_redis
 from app.core.cache_management import CacheManagement
-from app.core.influxdb_init import init_influx, close_influx
-from app.core.ha_ws_listener import start_ha_websocket_listener
 
 
 @asynccontextmanager
@@ -36,18 +33,9 @@ async def lifespan(app: FastAPI):
 
     await init_redis()
     await CacheManagement.update_cache()
-    init_influx()
-
-    # 🔥 Start HA WebSocket listener as background task
-    print("🔥 Lifespan startup running🔥🔥🔥🔥🔥hopaaa")
-    ws_task = asyncio.create_task(start_ha_websocket_listener())
 
     yield
 
-    # ---- SHUTDOWN ----
-    ws_task.cancel()
-
-    close_influx()
     await close_redis()
 
 
@@ -66,7 +54,6 @@ app.include_router(userfaces.router)
 app.include_router(vision.router)
 app.include_router(hub.router)
 app.include_router(rooms.router)
-app.include_router(influx_routes.router)
 app.include_router(ai_proxy.router)
 app.include_router(automation.router)
 
