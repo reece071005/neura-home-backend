@@ -11,9 +11,49 @@ from ai_app.ai.xgb_light_trainer import XGBLightTrainer
 from ai_app.ai.xgb_climate_trainer import XGBClimateTrainer
 from ai_app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
 from ai_app.ai.xgb_cover_trainer import XGBCoverTrainer
-from ai_app.ai.room_config import ROOM_CONFIG
 from ai_app.ai.suggestion_store import SuggestionStore, CooldownConfig
+from ai_app.services.room_client import fetch_all_rooms
+from ai_app.services.room_config_builder import build_config_from_entities
+from ai_app.ai.room_config import ROOM_CONFIG  # fallback
 
+DEFAULT_PRECONDITION = {
+    "enabled": True,
+    "arrival_time_weekday": "18:30",
+    "arrival_time_weekend": "13:00",
+    "lead_minutes": 20,
+    "min_temp_delta": 1.0,
+    "fallback_setpoint": 24.0,
+}
+
+async def _get_room_config(room_name: str) -> dict | None:
+    """
+    1) Try DB-driven rooms via main backend.
+    2) If that fails, fallback to ROOM_CONFIG.
+    Returns config shaped like:
+      {"lights":[], "climate":[], "covers":[], "motion":[], "precondition":{...}}
+    """
+    # --- try DB first ---
+    try:
+        rooms = await fetch_all_rooms()
+        for r in rooms:
+            if str(r.get("name")) == room_name:
+                entity_ids = r.get("entity_ids") or []
+                cfg = build_config_from_entities(entity_ids)
+                # ensure we always have precondition config
+                cfg["precondition"] = DEFAULT_PRECONDITION
+                return cfg
+    except Exception as e:
+        print(f"[AI] Failed to fetch rooms from backend: {e}")
+
+    # --- fallback to static config ---
+    fallback = ROOM_CONFIG.get(room_name)
+    if fallback:
+        # ensure fallback also has precondition default if missing
+        fb = dict(fallback)
+        fb["precondition"] = fb.get("precondition") or DEFAULT_PRECONDITION
+        return fb
+
+    return None
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -245,10 +285,9 @@ class Predictor:
         cooldown_cfg: CooldownConfig = CooldownConfig(),
     ) -> Dict[str, Any]:
 
-        if room not in ROOM_CONFIG:
-            return {"ok": False, "message": "Room not configured."}
-
-        config = ROOM_CONFIG[room]
+        config = await _get_room_config(room)
+        if not config:
+            return {"ok": False, "message": "Room not found in DB or fallback config."}
 
         # ---- Check motion (recent window) ----
         # Motion is still meaningful for lights/covers. Climate is handled separately by arrival preconditioning.

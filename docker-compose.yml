@@ -101,6 +101,7 @@ services:
       INFLUX_ORG: neura
       INFLUX_BUCKET: smart_home
       REDIS_URL: redis://redis:6379/0
+      APP_URL: http://api:8000
 
     depends_on:
       influxdb:
