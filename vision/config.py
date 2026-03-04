@@ -43,15 +43,17 @@ async def load_home_assistant_config_from_db() -> None:
       - key = 'home_assistant_secret', value = {"ciphertext": "<encrypted_token>"} or "<plain_token>"
     """
     global HOME_ASSISTANT_URL, ACCESS_TOKEN, HA_HEADERS
-
+    print(f"Loading home assistant config from database: {VISION_DATABASE_URL}")
     if not VISION_DATABASE_URL:
         return
 
+    print(f"Connecting to database: {VISION_DATABASE_URL}")
     try:
         conn = await asyncpg.connect(VISION_DATABASE_URL)
     except Exception:
         return
 
+    print(f"Fetching rows from database: {VISION_DATABASE_URL}")
     try:
         rows = await conn.fetch(
             """
@@ -65,6 +67,7 @@ async def load_home_assistant_config_from_db() -> None:
         await conn.close()
         return
 
+    print(f"Closing database connection: {VISION_DATABASE_URL}")
     await conn.close()
 
     config_map: dict[str, str] = {}
@@ -91,6 +94,9 @@ async def load_home_assistant_config_from_db() -> None:
         HOME_ASSISTANT_URL = config_map["home_assistant_url"]
     if "home_assistant_secret" in config_map:
         ACCESS_TOKEN = config_map["home_assistant_secret"]
+
+    print(f"Setting Home Assistant URL: {HOME_ASSISTANT_URL}")
+    print(f"Setting Home Assistant Access Token: {ACCESS_TOKEN}")
 
     HA_HEADERS = {}
     if ACCESS_TOKEN:
