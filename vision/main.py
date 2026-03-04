@@ -15,6 +15,22 @@ from config import load_home_assistant_config_from_db
 from surveillance import run_surveillance
 
 
+async def _periodic_reload_home_assistant_config(interval_seconds: int = 30) -> None:
+    """
+    Periodically reload Home Assistant URL/token from the database.
+
+    Keeps the long-running vision service in sync with changes made by the API
+    without any direct dependency between the two services.
+    """
+    while True:
+        try:
+            await load_home_assistant_config_from_db()
+        except Exception:
+            # On failure we just try again on the next interval.
+            pass
+        await asyncio.sleep(interval_seconds)
+
+
 def _decode_upload(content: bytes) -> np.ndarray:
     nparr = np.frombuffer(content, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -31,12 +47,17 @@ def _encode_image_bgr_to_base64_jpeg(image: np.ndarray) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start surveillance if cameras are configured; cancel on shutdown."""
-    # Load Home Assistant configuration (URL + token) from DB for the vision service
+    # Initial load of Home Assistant configuration (URL + token) from DB
     try:
         await load_home_assistant_config_from_db()
     except Exception:
         # If config loading fails, we still start; surveillance will no-op if URL/headers missing.
         pass
+
+    # Periodically refresh HA config in the background so credential/URL
+    # changes are picked up without any cross-service calls.
+    reload_task = asyncio.create_task(_periodic_reload_home_assistant_config())
+
     surveillance_task = None
     try:
         surveillance_task = await run_surveillance()
@@ -44,6 +65,13 @@ async def lifespan(app: FastAPI):
         pass
 
     yield
+
+    # Shutdown: cancel background tasks cleanly
+    reload_task.cancel()
+    try:
+        await reload_task
+    except asyncio.CancelledError:
+        pass
 
     if surveillance_task is not None:
         surveillance_task.cancel()

@@ -53,6 +53,8 @@ class DetectionNotification(Base):
     camera_entity = Column(String, nullable=False, index=True)
     image_path = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_read = Column(Boolean, nullable=False, default=False)
+    read_at = Column(DateTime(timezone=True), nullable=True)
 
 class Configuration(Base):
     __tablename__ = "configurations"

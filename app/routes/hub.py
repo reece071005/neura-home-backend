@@ -10,7 +10,8 @@ from sqlalchemy import select
 from app import models, schemas, auth
 from app.database import get_db
 from app.core.encryption import encrypt_secret, decrypt_secret
-
+from app.config import load_home_assistant_config_from_db
+from app.core.cache_management import CacheManagement
 
 router = APIRouter(prefix="/hub", tags=["hub"])
 
@@ -49,10 +50,12 @@ def _normalize_url(url: str) -> str:
     return url.rstrip("/") if url else url
 
 
-async def _validate_home_assistant_url(url: str) -> None:
+async def _validate_home_assistant_url(url: str) -> str:
     """
     Verify the URL is reachable by requesting the Home Assistant API root.
     Raises HTTPException if the URL is invalid or unreachable.
+
+    Returns the normalized base URL (without a trailing slash).
     """
     base = _normalize_url(url)
     if not base:
@@ -60,7 +63,15 @@ async def _validate_home_assistant_url(url: str) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="URL cannot be empty",
         )
-    check_url = f"{base}/api/"
+    # If the URL already points at the API (e.g. ends with /api or /api/),
+    # use it directly (ensuring it does not end with a slash). Otherwise, append /api (without trailing slash).
+    check_url = base
+    if base.endswith("/api/"):
+        check_url = base[:-1]  # Remove trailing slash
+    elif base.endswith("/api"):
+        check_url = base
+    else:
+        check_url = f"{base}/api"
     try:
         timeout = aiohttp.ClientTimeout(total=10)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -71,7 +82,7 @@ async def _validate_home_assistant_url(url: str) -> None:
                         status_code=status.HTTP_400_BAD_REQUEST,
                         detail=f"Home Assistant returned server error (HTTP {resp.status})",
                     )
-                return
+                return check_url
     except aiohttp.ClientError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -131,8 +142,8 @@ async def save_home_assistant_config(
     Validates that the URL is reachable before saving.
     No auth required when HA is not yet configured (initial setup); admin-only once configured.
     """
-    await _validate_home_assistant_url(payload.url)
-    url_value = _normalize_url(payload.url)
+    updated_url = await _validate_home_assistant_url(payload.url)
+    url_value = _normalize_url(updated_url)
 
     # Save URL
     result = await db.execute(
@@ -166,15 +177,9 @@ async def save_home_assistant_config(
     await db.commit()
     await db.refresh(url_config)
 
-    secret_out = None
-    if payload.secret is not None:
-        secret_out = payload.secret
-    else:
-        result = await db.execute(
-            select(models.Configuration).where(models.Configuration.key == "home_assistant_secret")
-        )
-        secret_config = result.scalar_one_or_none()
-        if secret_config and secret_config.value and "ciphertext" in secret_config.value:
-            secret_out = decrypt_secret(secret_config.value["ciphertext"])
+    # Reload in-process Home Assistant configuration so subsequent requests
+    # immediately use the new URL/credentials without needing an app restart.
+    await load_home_assistant_config_from_db()
+    await CacheManagement.update_cache()
 
-    return schemas.HomeAssistantConfigResponse(url=url_value, secret=secret_out)
+    return schemas.HomeAssistantConfigResponse(url=url_value, secret=payload.secret)
