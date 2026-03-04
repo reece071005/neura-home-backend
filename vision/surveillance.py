@@ -76,13 +76,14 @@ async def _create_detection_notification_db(
     try:
         row = await conn.fetchrow(
             """
-            INSERT INTO detection_notifications (message, camera_entity, image_path)
-            VALUES ($1, $2, $3)
+            INSERT INTO detection_notifications (message, camera_entity, image_path, is_read)
+            VALUES ($1, $2, $3, $4)
             RETURNING id
             """,
             message,
             camera_entity,
             image_path,
+            False,
         )
         if row:
             return int(row["id"])
