@@ -6,6 +6,8 @@ from app.database import engine, Base
 from app.routes import auth, users, homecontrollers, voice, userfaces, vision, hub, rooms
 from app.core.redis_init import init_redis, close_redis
 from app.core.cache_management import CacheManagement
+from app.config import load_home_assistant_config_from_db
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -13,6 +15,10 @@ async def lifespan(app: FastAPI):
     # Run DB migrations / create tables on startup
     async with engine.begin() as conn:  # type: AsyncEngine
         await conn.run_sync(Base.metadata.create_all)
+
+    # Load Home Assistant configuration from DB (overrides env defaults)
+    await load_home_assistant_config_from_db()
+
     # Initialize Redis client (single instance for the whole app)
     await init_redis()
     await CacheManagement.update_cache()

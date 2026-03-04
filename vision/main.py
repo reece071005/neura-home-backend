@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, UploadFile
 
-
+from config import load_home_assistant_config_from_db
 from surveillance import run_surveillance
 
 
@@ -31,6 +31,12 @@ def _encode_image_bgr_to_base64_jpeg(image: np.ndarray) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start surveillance if cameras are configured; cancel on shutdown."""
+    # Load Home Assistant configuration (URL + token) from DB for the vision service
+    try:
+        await load_home_assistant_config_from_db()
+    except Exception:
+        # If config loading fails, we still start; surveillance will no-op if URL/headers missing.
+        pass
     surveillance_task = None
     try:
         surveillance_task = await run_surveillance()

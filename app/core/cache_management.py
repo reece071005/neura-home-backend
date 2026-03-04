@@ -11,6 +11,7 @@ class CacheManagement:
         for device in controllable_devices:
             room = device.split(".")[1]
             rooms.append(room)
+        print(controllable_devices)
         await redis.set("rooms", json.dumps(rooms))
         await redis.set("devices", json.dumps(devices))
         await redis.set("controllable_devices", json.dumps(controllable_devices))

@@ -1,8 +1,10 @@
 import aiohttp
 from typing import Optional
-from app.config import HOME_ASSISTANT_URL, HEADERS
+
+from app import config as app_config
 from app import schemas
 from app.core.redis_init import get_redis
+
 
 class LightControl:
     @staticmethod
@@ -14,18 +16,12 @@ class LightControl:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"{HOME_ASSISTANT_URL}/services/light/turn_on",
-                    headers=HEADERS,
+                    f"{app_config.HOME_ASSISTANT_URL}/services/light/turn_on",
+                    headers=app_config.HEADERS,
                     json=payload
                 ) as response:
                     if 200 <= response.status < 300:
                         return schemas.LightStateResponse(message="Light turned on", success=True)
-
-                    text = await response.text()
-                    return schemas.LightStateResponse(
-                        message=f"Failed to turn on light (HA {response.status}): {text}",
-                        success=False
-                    )
         except Exception as e:
             return schemas.LightStateResponse(message=str(e), success=False)
 
@@ -34,10 +30,10 @@ class LightControl:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
-                    f"{HOME_ASSISTANT_URL}/services/light/turn_off",
-                    headers=HEADERS,
-                    json={"entity_id": light_state.entity_id}
-                ) as response:
+                    f"{app_config.HOME_ASSISTANT_URL}/services/light/turn_off",
+                    headers=app_config.HEADERS,
+                json={"entity_id": light_state.entity_id}
+            ) as response:
                     if 200 <= response.status < 300:
                         return schemas.LightStateResponse(message="Light turned off", success=True)
 
@@ -55,7 +51,11 @@ class CoverControl:
         payload = {"entity_id": cover_entity}
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(f"{HOME_ASSISTANT_URL}/services/cover/open_cover", headers=HEADERS, json=payload) as response:
+                async with session.post(
+                    f"{app_config.HOME_ASSISTANT_URL}/services/cover/open_cover",
+                    headers=app_config.HEADERS,
+                    json=payload,
+                ) as response:
                     if 200 <= response.status < 300:
                         return schemas.CoverStateResponse(message="Cover opened", success=True)
                     text = await response.text()
@@ -67,7 +67,11 @@ class CoverControl:
         payload = {"entity_id": cover_entity}
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(f"{HOME_ASSISTANT_URL}/services/cover/close_cover", headers=HEADERS, json=payload) as response:
+                async with session.post(
+                    f"{app_config.HOME_ASSISTANT_URL}/services/cover/close_cover",
+                    headers=app_config.HEADERS,
+                    json=payload,
+                ) as response:
                     if 200 <= response.status < 300:
                         return schemas.CoverStateResponse(message="Cover closed", success=True)
                     text = await response.text()
@@ -81,7 +85,11 @@ class CoverControl:
         payload = {"entity_id": cover_entity, "position": position}
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(f"{HOME_ASSISTANT_URL}/services/cover/set_cover_position", headers=HEADERS, json=payload) as response:
+                async with session.post(
+                    f"{app_config.HOME_ASSISTANT_URL}/services/cover/set_cover_position",
+                    headers=app_config.HEADERS,
+                    json=payload,
+                ) as response:
                     if 200 <= response.status < 300:
                         return schemas.CoverStateResponse(message="Cover position set", success=True)
                     text = await response.text()
@@ -118,8 +126,8 @@ class ClimateControl:
                 nonlocal ok, messages
                 try:
                     async with session.post(
-                        f"{HOME_ASSISTANT_URL}/services/climate/{service}",
-                        headers=HEADERS,
+                        f"{app_config.HOME_ASSISTANT_URL}/services/climate/{service}",
+                        headers=app_config.HEADERS,
                         json=body,
                     ) as resp:
                         text = await resp.text()
@@ -191,8 +199,8 @@ class FanControl:
                 nonlocal ok, messages
                 try:
                     async with session.post(
-                        f"{HOME_ASSISTANT_URL}/services/fan/{service}",
-                        headers=HEADERS,
+                        f"{app_config.HOME_ASSISTANT_URL}/services/fan/{service}",
+                        headers=app_config.HEADERS,
                         json=payload,
                     ) as resp:
                         text = await resp.text()
@@ -231,13 +239,19 @@ class DeviceControl:
     async def get_all_devices():
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{HOME_ASSISTANT_URL}/states", headers=HEADERS) as response:
+                async with session.get(
+                    f"{app_config.HOME_ASSISTANT_URL}/states",
+                    headers=app_config.HEADERS,
+                ) as response:
                     if response.status != 200:
                         return []
                     states_data = await response.json()
 
                 # Fetch area metadata
-                async with session.get(f"{HOME_ASSISTANT_URL}/areas", headers=HEADERS) as area_response:
+                async with session.get(
+                    f"{app_config.HOME_ASSISTANT_URL}/areas",
+                    headers=app_config.HEADERS,
+                ) as area_response:
                     area_lookup = {}
                     if area_response.status == 200:
                         area_data = await area_response.json()
@@ -295,7 +309,10 @@ class DeviceControl:
     async def get_current_state():
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(f"{HOME_ASSISTANT_URL}/states", headers=HEADERS) as response:
+                async with session.get(
+                    f"{app_config.HOME_ASSISTANT_URL}/states",
+                    headers=app_config.HEADERS,
+                ) as response:
                     if response.status != 200:
                         return []
                     states_data = await response.json()
@@ -320,8 +337,8 @@ class CameraControl:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
-                    f"{HOME_ASSISTANT_URL}/camera_proxy/{camera_entity}",
-                    headers=HEADERS,
+                    f"{app_config.HOME_ASSISTANT_URL}/camera_proxy/{camera_entity}",
+                    headers=app_config.HEADERS,
                     timeout=aiohttp.ClientTimeout(total=10)
                 ) as response:
                     if response.status != 200:
@@ -355,8 +372,8 @@ async def control_device(device: schemas.DeviceControlRequest):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                f"{HOME_ASSISTANT_URL}/services/{device.domain}/{service}",
-                headers=HEADERS,
+                f"{app_config.HOME_ASSISTANT_URL}/services/{device.domain}/{service}",
+                headers=app_config.HEADERS,
                 json=payload
             ) as response:
                 if 200 <= response.status < 300:

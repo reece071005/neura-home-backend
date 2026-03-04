@@ -1,11 +1,20 @@
 import os
+from typing import Optional
 
-HOME_ASSISTANT_URL = "https://70i5piqxrwxbmwtnseu92fpobavxtcpe.ui.nabu.casa/api"
-ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjOTU0NGZmOTVmNTg0NDU4YThhYjRkMzc2NDc4YzRkYSIsImlhdCI6MTc2ODMyMDI5MiwiZXhwIjoyMDgzNjgwMjkyfQ.d6JJi6e4lSOj8dJMIRul3ce32E10t4bzb-VKIZlFRoM"
-HA_HEADERS = {
-    "Authorization": f"Bearer {ACCESS_TOKEN}",
-    "Content-Type": "application/json",
-}
+import asyncpg
+import hashlib
+import base64
+from cryptography.fernet import Fernet
+
+
+HOME_ASSISTANT_URL: Optional[str] = os.getenv("HOME_ASSISTANT_URL")
+ACCESS_TOKEN: Optional[str] = os.getenv("HOME_ASSISTANT_ACCESS_TOKEN")
+
+HA_HEADERS: dict[str, str] = {}
+if ACCESS_TOKEN:
+    HA_HEADERS["Authorization"] = f"Bearer {ACCESS_TOKEN}"
+HA_HEADERS.setdefault("Content-Type", "application/json")
+
 
 RESIDENTS_DIR = os.getenv("VISION_RESIDENTS_DIR", "/app/residents")
 VISION_NOTIFY_DIR = os.getenv("NOTIFY_DIR", "/app/notify")
@@ -16,5 +25,74 @@ VISION_DATABASE_URL = os.getenv(
     "VISION_DATABASE_URL",
     "postgresql://postgres:postgres@db:5432/neura_db",
 )
+SECRET_KEY = os.getenv("SECRET_KEY", "1a596c46af920d405709d28bc83c5d80491910d531ae34af4e804e853d0458b4")
 
-API_URL = "http://api.neura-home-backend.orb.local:8000"
+def _get_fernet() -> Fernet:
+    """Derive a Fernet key from the application's SECRET_KEY."""
+    digest = hashlib.sha256(SECRET_KEY.encode("utf-8")).digest()
+    fernet_key = base64.urlsafe_b64encode(digest)
+    return Fernet(fernet_key)
+
+async def load_home_assistant_config_from_db() -> None:
+    """
+    Load Home Assistant URL and secret from the `configurations` table
+    using asyncpg and VISION_DATABASE_URL.
+
+    Expects rows like:
+      - key = 'home_assistant_url', value = "<base_api_url>"
+      - key = 'home_assistant_secret', value = {"ciphertext": "<encrypted_token>"} or "<plain_token>"
+    """
+    global HOME_ASSISTANT_URL, ACCESS_TOKEN, HA_HEADERS
+
+    if not VISION_DATABASE_URL:
+        return
+
+    try:
+        conn = await asyncpg.connect(VISION_DATABASE_URL)
+    except Exception:
+        return
+
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT key, value
+            FROM configurations
+            WHERE key = ANY($1::text[])
+            """,
+            ["home_assistant_url", "home_assistant_secret"],
+        )
+    except Exception:
+        await conn.close()
+        return
+
+    await conn.close()
+
+    config_map: dict[str, str] = {}
+    for row in rows:
+        key = row["key"]
+        raw_value = row["value"]
+
+        parsed: Optional[str] = None
+        if isinstance(raw_value, str):
+            parsed = raw_value
+        elif isinstance(raw_value, dict):
+            if "value" in raw_value and isinstance(raw_value["value"], str):
+                parsed = raw_value["value"]
+            elif "url" in raw_value and isinstance(raw_value["url"], str):
+                parsed = raw_value["url"]
+            elif "ciphertext" in raw_value and isinstance(raw_value["ciphertext"], str):
+                f = _get_fernet()
+                parsed = f.decrypt(raw_value["ciphertext"].encode("utf-8")).decode("utf-8")
+
+        if parsed is not None:
+            config_map[key] = parsed
+
+    if "home_assistant_url" in config_map:
+        HOME_ASSISTANT_URL = config_map["home_assistant_url"]
+    if "home_assistant_secret" in config_map:
+        ACCESS_TOKEN = config_map["home_assistant_secret"]
+
+    HA_HEADERS = {}
+    if ACCESS_TOKEN:
+        HA_HEADERS["Authorization"] = f"Bearer {ACCESS_TOKEN}"
+    HA_HEADERS["Content-Type"] = "application/json"
