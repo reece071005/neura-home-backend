@@ -29,9 +29,11 @@ async def voice_command(
     Also handles resident location queries: "where is Reece", "where are my kids", etc.
     """
     execute_command = await VoiceAssistant.search_commands(text)
+    print(execute_command)
 
     if execute_command and execute_command.get("output_json", {}).get("entity_id"):
         execute_result = await VoiceAssistant.execute_command(execute_command)
+        print(execute_result)
         return {"success": True, "message": "Command executed", "response": execute_result}
 
     # Check for resident location queries before LLM fallback
