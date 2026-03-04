@@ -13,14 +13,8 @@ import aiohttp
 import asyncpg
 import cv2
 import numpy as np
+import config
 
-from config import (
-    HA_HEADERS,
-    HOME_ASSISTANT_URL,
-    VISION_INTERVAL_SECONDS,
-    VISION_NOTIFY_DIR,
-    VISION_DATABASE_URL,
-)
 
 
 def _decode_image(image_bytes: bytes) -> np.ndarray | None:
@@ -63,12 +57,12 @@ async def _create_detection_notification_db(
     Create a detection notification directly in Postgres and return its ID.
     This bypasses the main API HTTP endpoint.
     """
-    if not VISION_DATABASE_URL:
+    if not config.VISION_DATABASE_URL:
         print("[surveillance] VISION_DATABASE_URL is not set; cannot create notifications")
         return None
 
     try:
-        conn = await asyncpg.connect(VISION_DATABASE_URL)
+        conn = await asyncpg.connect(config.VISION_DATABASE_URL)
     except Exception as e:
         print(f"[surveillance] Failed to connect to DB for notification insert: {e!r}")
         return None
@@ -103,12 +97,12 @@ async def _update_detection_notification_db(
     """
     Update an existing detection notification (image/message) directly in Postgres.
     """
-    if not VISION_DATABASE_URL:
+    if not config.VISION_DATABASE_URL:
         print("[surveillance] VISION_DATABASE_URL is not set; cannot update notifications")
         return
 
     try:
-        conn = await asyncpg.connect(VISION_DATABASE_URL)
+        conn = await asyncpg.connect(config.VISION_DATABASE_URL)
     except Exception as e:
         print(f"[surveillance] Failed to connect to DB for notification update: {e!r}")
         return
@@ -135,13 +129,13 @@ async def _fetch_camera_entities_from_db() -> list[str] | None:
     Fetch the list of camera entity IDs directly from the Postgres DB
     by reading the `configurations` table (key = 'tracked_cameras').
     """
-    if not VISION_DATABASE_URL:
+    if not config.VISION_DATABASE_URL:
         print("[surveillance] VISION_DATABASE_URL is not set; cannot load cameras from DB")
         return None
 
     try:
-        print(f"[surveillance] Connecting to DB at {VISION_DATABASE_URL!r} to load cameras")
-        conn = await asyncpg.connect(VISION_DATABASE_URL)
+        print(f"[surveillance] Connecting to DB at {config.VISION_DATABASE_URL!r} to load cameras")
+        conn = await asyncpg.connect(config.VISION_DATABASE_URL)
     except Exception as e:
         print(f"[surveillance] Failed to connect to DB: {e!r}")
         return None
@@ -192,9 +186,9 @@ async def _fetch_camera_entities(session: aiohttp.ClientSession) -> list[str] | 
 
 async def _fetch_snapshot(session: aiohttp.ClientSession, camera_entity: str) -> bytes | None:
     """Fetch a single camera snapshot from Home Assistant."""
-    url = f"{HOME_ASSISTANT_URL}/camera_proxy/{camera_entity}"
+    url = f"{config.HOME_ASSISTANT_URL}/camera_proxy/{camera_entity}"
     try:
-        async with session.get(url, headers=HA_HEADERS, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+        async with session.get(url, headers=config.HA_HEADERS, timeout=aiohttp.ClientTimeout(total=10)) as resp:
             if resp.status != 200:
                 return None
             return await resp.read()
@@ -348,12 +342,13 @@ async def run_surveillance(
             camera_entities = initial_from_db
 
     print(f"[surveillance] Starting surveillance with camera_entities={camera_entities}")
-    interval_seconds = interval_seconds if interval_seconds is not None else VISION_INTERVAL_SECONDS
-    notify_dir = notify_dir or VISION_NOTIFY_DIR
+    interval_seconds = interval_seconds if interval_seconds is not None else config.VISION_INTERVAL_SECONDS
+    notify_dir = notify_dir or config.VISION_NOTIFY_DIR
 
     # Allow starting even when no cameras are configured initially; the
     # list can be populated dynamically from the main API.
-    if not HOME_ASSISTANT_URL or not HA_HEADERS:
+    if not config.HOME_ASSISTANT_URL or not config.HA_HEADERS:
+        print(f"[surveillance] HOME_ASSISTANT_URL or HA_HEADERS is not set; cannot start surveillance")
         return None
 
     from camerastream import run_analyzer

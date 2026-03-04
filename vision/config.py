@@ -95,8 +95,8 @@ async def load_home_assistant_config_from_db() -> None:
     if "home_assistant_secret" in config_map:
         ACCESS_TOKEN = config_map["home_assistant_secret"]
 
-    print(f"Setting Home Assistant URL: {HOME_ASSISTANT_URL}")
-    print(f"Setting Home Assistant Access Token: {ACCESS_TOKEN}")
+    # print(f"Setting Home Assistant URL: {HOME_ASSISTANT_URL}")
+    # print(f"Setting Home Assistant Access Token: {ACCESS_TOKEN}")
 
     HA_HEADERS = {}
     if ACCESS_TOKEN:

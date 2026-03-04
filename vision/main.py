@@ -48,14 +48,10 @@ def _encode_image_bgr_to_base64_jpeg(image: np.ndarray) -> str:
 async def lifespan(app: FastAPI):
     """Start surveillance if cameras are configured; cancel on shutdown."""
     # Initial load of Home Assistant configuration (URL + token) from DB
-    try:
-        await load_home_assistant_config_from_db()
-    except Exception:
-        # If config loading fails, we still start; surveillance will no-op if URL/headers missing.
-        pass
+
+    await load_home_assistant_config_from_db()
 
     # Periodically refresh HA config in the background so credential/URL
-    # changes are picked up without any cross-service calls.
     reload_task = asyncio.create_task(_periodic_reload_home_assistant_config())
 
     surveillance_task = None
@@ -66,7 +62,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown: cancel background tasks cleanly
+   
     reload_task.cancel()
     try:
         await reload_task
