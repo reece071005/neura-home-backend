@@ -186,13 +186,42 @@ async def _fetch_camera_entities(session: aiohttp.ClientSession) -> list[str] | 
 
 async def _fetch_snapshot(session: aiohttp.ClientSession, camera_entity: str) -> bytes | None:
     """Fetch a single camera snapshot from Home Assistant."""
-    url = f"{config.HOME_ASSISTANT_URL}/camera_proxy/{camera_entity}"
+    ha_url = config.HOME_ASSISTANT_URL
+    print(f"[surveillance] Home Assistant URL (raw): {ha_url!r}")
+    if not ha_url:
+        print("[surveillance] HOME_ASSISTANT_URL is not set; cannot fetch snapshot")
+        return None
+
+    # Normalize base URL to ensure we hit the HA REST API correctly.
+    base = ha_url.rstrip("/")
+    if not base.endswith("/api"):
+        base = f"{base}/api"
+
+    url = f"{base}/camera_proxy/{camera_entity}"
+    print(f"[surveillance] Snapshot URL: {url!r}")
+    print(f"[surveillance] HA_HEADERS: {config.HA_HEADERS!r}")
+    print(f"[surveillance] Fetching snapshot for camera_entity={camera_entity!r} url={url!r}")
     try:
         async with session.get(url, headers=config.HA_HEADERS, timeout=aiohttp.ClientTimeout(total=10)) as resp:
             if resp.status != 200:
+                print(
+                    f"[surveillance] Snapshot request failed for camera_entity={camera_entity!r} "
+                    f"status={resp.status} reason={resp.reason}"
+                )
+                data = await resp.read()
+                print(f"[surveillance] Response: {data}")
                 return None
-            return await resp.read()
-    except Exception:
+            data = await resp.read()
+            print(
+                f"[surveillance] Snapshot fetched for camera_entity={camera_entity!r} "
+                f"data_len={len(data) if data is not None else 'None'}"
+            )
+            return data
+    except asyncio.CancelledError:
+        print(f"[surveillance] Snapshot fetch cancelled for camera_entity={camera_entity!r}")
+        raise
+    except Exception as e:
+        print(f"[surveillance] Exception while fetching snapshot for {camera_entity!r}: {e!r}")
         return None
 
 
@@ -207,6 +236,10 @@ async def _producer(
     - fetch a snapshot from each camera
     - put (camera_entity, image) on the queue
     """
+    print(
+        f"[surveillance] _producer starting with initial camera_entities={camera_entities}, "
+        f"interval_seconds={interval_seconds}"
+    )
     async with aiohttp.ClientSession() as session:
         current_camera_entities: list[str] = list(camera_entities)
         camera_refresh_interval = 30.0
@@ -215,30 +248,51 @@ async def _producer(
         while True:
             now = asyncio.get_event_loop().time()
             if now - last_camera_refresh >= camera_refresh_interval:
+                print(
+                    f"[surveillance] Refresh interval reached; attempting to refresh cameras from DB. "
+                    f"now={now}, last_camera_refresh={last_camera_refresh}, "
+                    f"camera_refresh_interval={camera_refresh_interval}"
+                )
                 try:
                     fetched = await _fetch_camera_entities(session)
                     if fetched is not None:
                         current_camera_entities = fetched
                         print(f"[surveillance] Current camera entity_ids: {current_camera_entities}")
                 except asyncio.CancelledError:
+                    print("[surveillance] _producer camera refresh cancelled")
                     raise
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[surveillance] Unexpected error while refreshing cameras: {e!r}")
                 finally:
                     last_camera_refresh = now
 
+            print(
+                f"[surveillance] _producer loop tick; iterating cameras={current_camera_entities}, "
+                f"queue_size={input_queue.qsize()}"
+            )
             for camera_entity in current_camera_entities:
                 try:
                     image_data = await _fetch_snapshot(session, camera_entity)
                     if image_data is None:
+                        print(f"[surveillance] No image data for camera_entity={camera_entity!r}; skipping")
                         continue
                     img = _decode_image(image_data)
                     if img is not None:
+                        print(
+                            f"[surveillance] Decoded image for camera_entity={camera_entity!r}; "
+                            f"putting onto input_queue (current_size={input_queue.qsize()})"
+                        )
                         await input_queue.put((camera_entity, img))
+                    else:
+                        print(
+                            f"[surveillance] Failed to decode image bytes for camera_entity={camera_entity!r}"
+                        )
                 except asyncio.CancelledError:
+                    print("[surveillance] _producer cancelled during snapshot loop")
                     raise
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[surveillance] Unexpected error in _producer loop for {camera_entity!r}: {e!r}")
+            print(f"[surveillance] _producer sleeping for {interval_seconds} seconds")
             await asyncio.sleep(interval_seconds)
 
 
@@ -256,6 +310,10 @@ async def _consumer(
     stranger appears, a kid/resident is added), a new notification row is
     created.
     """
+    print(
+        f"[surveillance] _consumer starting with notify_dir={notify_dir!r}, "
+        f"stop_event_set={stop_event.is_set()}"
+    )
     notify_path = Path(notify_dir)
     notify_path.mkdir(parents=True, exist_ok=True)
 
@@ -265,16 +323,23 @@ async def _consumer(
         try:
             item = await asyncio.wait_for(results_queue.get(), timeout=1.0)
         except asyncio.TimeoutError:
+            # No items yet; continue loop
             continue
         except asyncio.CancelledError:
+            print("[surveillance] _consumer cancelled while waiting on results_queue")
             break
 
         results_queue.task_done()
         if len(item) == 4:
+            print(f"[surveillance] _consumer received error result payload={item!r}; skipping")
             continue  # error result, skip
         request_id, annotated, detections = item
 
         if not detections or annotated is None:
+            print(
+                f"[surveillance] _consumer received empty detections or annotated image for "
+                f"request_id={request_id!r}; detections={detections}, annotated_is_none={annotated is None}"
+            )
             continue
 
 
@@ -286,6 +351,10 @@ async def _consumer(
         filename = f"{safe_name}_{ts}.jpg"
         out_path = notify_path / filename
         cv2.imwrite(str(out_path), annotated)
+        print(
+            f"[surveillance] Saved annotated image for camera_id={camera_id!r}, "
+            f"labels_signature={labels_signature!r}, path={str(out_path)!r}"
+        )
 
         # Build message "John is detected at front door"
         message = _format_detection_message(detections, request_id)
@@ -308,12 +377,25 @@ async def _consumer(
 
                 await _update_detection_notification_db(existing_id, filename, message)
                 notification_id = existing_id
+                print(
+                    f"[surveillance] Updated existing detection notification id={existing_id} "
+                    f"for camera_id={camera_id!r} with same signature"
+                )
 
         # If we didn't find a valid cached notification for this signature, insert a new one.
         if notification_id is None:
             created_id = await _create_detection_notification_db(request_id, filename, message)
             if created_id is not None:
                 notification_id = created_id
+                print(
+                    f"[surveillance] Created new detection notification id={created_id} "
+                    f"for camera_id={camera_id!r}, labels_signature={labels_signature!r}"
+                )
+            else:
+                print(
+                    f"[surveillance] Failed to create new detection notification for "
+                    f"camera_id={camera_id!r}, labels_signature={labels_signature!r}"
+                )
 
         # Update cache entry so that continuous presence of the same
         # person(s) (e.g., a stranger at the door) causes updates to the same
@@ -321,6 +403,15 @@ async def _consumer(
         # joins) creates a fresh notification.
         if notification_id is not None:
             last_notifications[camera_id] = (labels_signature, notification_id, filename)
+            print(
+                f"[surveillance] Updated last_notifications cache for camera_id={camera_id!r}: "
+                f"(signature={labels_signature!r}, notification_id={notification_id}, filename={filename!r})"
+            )
+        else:
+            print(
+                f"[surveillance] No notification_id obtained for camera_id={camera_id!r}, "
+                f"labels_signature={labels_signature!r}; cache not updated"
+            )
 
 
 async def run_surveillance(
@@ -334,6 +425,7 @@ async def run_surveillance(
     """
     # Initial load of camera entities (if not explicitly provided)
     if camera_entities is None:
+        print("[surveillance] No camera_entities explicitly provided; loading from DB...")
         initial_from_db = await _fetch_camera_entities_from_db()
         if initial_from_db is None:
             print("[surveillance] Could not load initial camera entities from DB; starting with empty list")
@@ -344,48 +436,77 @@ async def run_surveillance(
     print(f"[surveillance] Starting surveillance with camera_entities={camera_entities}")
     interval_seconds = interval_seconds if interval_seconds is not None else config.VISION_INTERVAL_SECONDS
     notify_dir = notify_dir or config.VISION_NOTIFY_DIR
+    print(
+        f"[surveillance] Resolved interval_seconds={interval_seconds}, notify_dir={notify_dir!r}, "
+        f"HOME_ASSISTANT_URL={config.HOME_ASSISTANT_URL!r}"
+    )
 
     # Allow starting even when no cameras are configured initially; the
     # list can be populated dynamically from the main API.
     if not config.HOME_ASSISTANT_URL or not config.HA_HEADERS:
-        print(f"[surveillance] HOME_ASSISTANT_URL or HA_HEADERS is not set; cannot start surveillance")
+        print(
+            f"[surveillance] HOME_ASSISTANT_URL or HA_HEADERS is not set; cannot start surveillance. "
+            f"HOME_ASSISTANT_URL={config.HOME_ASSISTANT_URL!r}, HA_HEADERS_present={bool(config.HA_HEADERS)}"
+        )
         return None
 
     from camerastream import run_analyzer
 
-    input_queue: asyncio.Queue = asyncio.Queue(maxsize=len(camera_entities) * 2)
+    input_queue: asyncio.Queue = asyncio.Queue(maxsize=len(camera_entities) * 2 if camera_entities else 10)
     results_queue: asyncio.Queue = asyncio.Queue()
     stop_event = asyncio.Event()
 
     async def consumer_loop():
         await _consumer(results_queue, notify_dir, stop_event)
 
+    print(
+        f"[surveillance] Creating tasks: run_analyzer, _producer, _consumer with "
+        f"input_queue_maxsize={input_queue.maxsize}, initial_camera_entities={camera_entities}"
+    )
     analyzer_task = asyncio.create_task(run_analyzer(input_queue, results_queue))
     producer_task = asyncio.create_task(_producer(camera_entities, interval_seconds, input_queue))
     consumer_task = asyncio.create_task(consumer_loop())
 
     async def run_all():
         try:
+            print("[surveillance] run_all starting; awaiting producer and consumer tasks")
             await asyncio.gather(producer_task, consumer_task)
         except asyncio.CancelledError:
-            pass
+            print("[surveillance] run_all received CancelledError; shutting down tasks")
+            raise
+        except Exception as e:
+            print(f"[surveillance] Unexpected exception in run_all: {e!r}")
         finally:
+            print("[surveillance] run_all cleanup starting")
             stop_event.set()
-            await input_queue.put(None)
+            try:
+                await input_queue.put(None)
+            except Exception as e:
+                print(f"[surveillance] Failed to put sentinel None into input_queue: {e!r}")
+
             producer_task.cancel()
             consumer_task.cancel()
             try:
                 await producer_task
             except asyncio.CancelledError:
-                pass
+                print("[surveillance] producer_task cancelled and awaited")
+            except Exception as e:
+                print(f"[surveillance] producer_task finished with exception: {e!r}")
+
             try:
                 await consumer_task
             except asyncio.CancelledError:
-                pass
+                print("[surveillance] consumer_task cancelled and awaited")
+            except Exception as e:
+                print(f"[surveillance] consumer_task finished with exception: {e!r}")
+
             analyzer_task.cancel()
             try:
                 await analyzer_task
             except asyncio.CancelledError:
-                pass
+                print("[surveillance] analyzer_task cancelled and awaited")
+            except Exception as e:
+                print(f"[surveillance] analyzer_task finished with exception: {e!r}")
+            print("[surveillance] run_all cleanup complete")
 
     return asyncio.create_task(run_all())

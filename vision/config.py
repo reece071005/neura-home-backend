@@ -1,6 +1,6 @@
 import os
 from typing import Optional
-
+import json
 import asyncpg
 import hashlib
 import base64
@@ -74,26 +74,27 @@ async def load_home_assistant_config_from_db() -> None:
     for row in rows:
         key = row["key"]
         raw_value = row["value"]
-
+        print(key, raw_value)
         parsed: Optional[str] = None
-        if isinstance(raw_value, str):
+        print(f"Key: {key}, Raw Value: {raw_value}")
+        if key == "home_assistant_url":
+            raw_value = json.loads(raw_value)['url']
             parsed = raw_value
-        elif isinstance(raw_value, dict):
-            if "value" in raw_value and isinstance(raw_value["value"], str):
-                parsed = raw_value["value"]
-            elif "url" in raw_value and isinstance(raw_value["url"], str):
-                parsed = raw_value["url"]
-            elif "ciphertext" in raw_value and isinstance(raw_value["ciphertext"], str):
-                f = _get_fernet()
-                parsed = f.decrypt(raw_value["ciphertext"].encode("utf-8")).decode("utf-8")
+        elif key == "home_assistant_secret":
+            raw_value = json.loads(raw_value)['ciphertext']
+            print(f"Decrypting Home Assistant Access Token: {raw_value}")
+            f = _get_fernet()
+            parsed = f.decrypt(raw_value.encode("utf-8")).decode("utf-8")
+            print(f"Decrypted Home Assistant Access Token: {parsed}")
 
         if parsed is not None:
             config_map[key] = parsed
-
+    print(f"Config Map: {config_map}")
     if "home_assistant_url" in config_map:
         HOME_ASSISTANT_URL = config_map["home_assistant_url"]
     if "home_assistant_secret" in config_map:
         ACCESS_TOKEN = config_map["home_assistant_secret"]
+        print(f"Setting Home Assistant Access Token: {ACCESS_TOKEN}")
 
     # print(f"Setting Home Assistant URL: {HOME_ASSISTANT_URL}")
     # print(f"Setting Home Assistant Access Token: {ACCESS_TOKEN}")
@@ -102,3 +103,4 @@ async def load_home_assistant_config_from_db() -> None:
     if ACCESS_TOKEN:
         HA_HEADERS["Authorization"] = f"Bearer {ACCESS_TOKEN}"
     HA_HEADERS["Content-Type"] = "application/json"
+    print(f"HA_HEADERS: {HA_HEADERS}")
