@@ -66,6 +66,9 @@ class VoiceAssistant:
                     entity_id=entity_id,
                     state="on",
                     brightness=parameters.get("brightness"),
+                    color_name=parameters.get("color_name"),
+                    rgb_color=parameters.get("rgb_color"),
+                    color_temp_kelvin=parameters.get("color_temp_kelvin"),
                 )
                 result = await LightControl.turn_on_light(light_state)
             elif intent in ("turn_off", "off"):

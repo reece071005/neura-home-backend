@@ -12,7 +12,12 @@ class LightControl:
         payload = {"entity_id": light_state.entity_id}
         if light_state.brightness is not None:
             payload["brightness"] = light_state.brightness 
-
+        if light_state.color_name is not None:
+            payload["color_name"] = light_state.color_name
+        if light_state.rgb_color is not None:
+            payload["rgb_color"] = light_state.rgb_color
+        if light_state.color_temp_kelvin is not None:
+            payload["color_temp_kelvin"] = light_state.color_temp_kelvin
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(

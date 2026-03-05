@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, model_validator
 from typing import Optional, Literal
 from datetime import datetime
 from app.models import UserRole
@@ -101,6 +101,23 @@ class LightState(BaseModel):
     entity_id: str
     state: Literal["on", "off"]
     brightness: Optional[int] = None
+    color_name: Optional[str] = None
+    rgb_color: Optional[list[int]] = None
+    color_temp_kelvin: Optional[int] = None
+
+    @model_validator(mode="after")
+    def validate_color_fields_exclusive(self):
+        color_fields = {
+            "color_name": self.color_name,
+            "rgb_color": self.rgb_color,
+            "color_temp_kelvin": self.color_temp_kelvin,
+        }
+        provided = [name for name, value in color_fields.items() if value is not None]
+        if len(provided) > 1:
+            raise ValueError(
+                "Only one of 'color_name', 'rgb_color', or 'color_temp_kelvin' may be provided."
+            )
+        return self
 
 class LightStateResponse(BaseModel):
     message: str

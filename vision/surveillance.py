@@ -208,8 +208,6 @@ async def _fetch_snapshot(session: aiohttp.ClientSession, camera_entity: str) ->
                     f"[surveillance] Snapshot request failed for camera_entity={camera_entity!r} "
                     f"status={resp.status} reason={resp.reason}"
                 )
-                data = await resp.read()
-                print(f"[surveillance] Response: {data}")
                 return None
             data = await resp.read()
             print(

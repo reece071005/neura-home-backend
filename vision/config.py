@@ -82,10 +82,8 @@ async def load_home_assistant_config_from_db() -> None:
             parsed = raw_value
         elif key == "home_assistant_secret":
             raw_value = json.loads(raw_value)['ciphertext']
-            print(f"Decrypting Home Assistant Access Token: {raw_value}")
             f = _get_fernet()
             parsed = f.decrypt(raw_value.encode("utf-8")).decode("utf-8")
-            print(f"Decrypted Home Assistant Access Token: {parsed}")
 
         if parsed is not None:
             config_map[key] = parsed
@@ -94,7 +92,6 @@ async def load_home_assistant_config_from_db() -> None:
         HOME_ASSISTANT_URL = config_map["home_assistant_url"]
     if "home_assistant_secret" in config_map:
         ACCESS_TOKEN = config_map["home_assistant_secret"]
-        print(f"Setting Home Assistant Access Token: {ACCESS_TOKEN}")
 
     # print(f"Setting Home Assistant URL: {HOME_ASSISTANT_URL}")
     # print(f"Setting Home Assistant Access Token: {ACCESS_TOKEN}")
@@ -103,4 +100,3 @@ async def load_home_assistant_config_from_db() -> None:
     if ACCESS_TOKEN:
         HA_HEADERS["Authorization"] = f"Bearer {ACCESS_TOKEN}"
     HA_HEADERS["Content-Type"] = "application/json"
-    print(f"HA_HEADERS: {HA_HEADERS}")
