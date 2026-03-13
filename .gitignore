@@ -15,3 +15,5 @@ app/voice/models/*.gguf
 vision/notify/
 notify/
 test.py
+.DS_Store
+.env

@@ -325,7 +325,18 @@ class DeviceControl:
         except Exception as e:
             print("Failed to get current state:", str(e))
             return []
-
+    @staticmethod
+    async def get_current_state_device(entity_id: str) -> dict | None:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"{app_config.HOME_ASSISTANT_URL}/states/{entity_id}",
+                    headers=app_config.HEADERS,
+                ) as response:
+                    return await response.json()
+        except Exception as e:
+            print("Failed to get current state device:", str(e))
+            return None
 
 class CameraControl:
     @staticmethod
