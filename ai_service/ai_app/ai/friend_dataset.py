@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Optional
 
 import os
 import pandas as pd
 from influxdb_client import InfluxDBClient
 
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+from ai_app.core.demo_time import get_simulated_utc_now
 
 
 @dataclass
@@ -19,7 +17,6 @@ class FriendWindow:
 
 
 class FriendInfluxDataset:
-
     @staticmethod
     def _get_client() -> InfluxDBClient:
         url = os.getenv("FRIEND_INFLUX_URL")
@@ -41,7 +38,7 @@ class FriendInfluxDataset:
         if not bucket or not org:
             raise RuntimeError("Missing FRIEND_INFLUX_BUCKET / FRIEND_INFLUX_ORG in env.")
 
-        start = _utc_now() - timedelta(days=days)
+        start = _sync_now_minus_days(days)
 
         flux = f"""
 from(bucket: "{bucket}")
@@ -65,15 +62,9 @@ from(bucket: "{bucket}")
         if df.empty:
             return df
 
-        # normalize column names
         df = df.rename(columns={"_time": "time", "_value": "value", "_field": "field"})
-
-        # ensure time is datetime
         df["time"] = pd.to_datetime(df["time"], utc=True)
-
-        # drop null time
         df = df.dropna(subset=["time"])
-
         return df
 
     @staticmethod
@@ -84,18 +75,12 @@ from(bucket: "{bucket}")
         field: str = "state",
         lookback_minutes: int = 60 * 24,
     ) -> Optional[str]:
-        """
-        Returns the most recent _value for a given entity/domain/field from FRIEND Influx.
-
-        Typical motion sensors:
-          domain="binary_sensor", field="state", value="on"/"off"
-        """
         bucket = os.getenv("FRIEND_INFLUX_BUCKET")
         org = os.getenv("FRIEND_INFLUX_ORG")
         if not bucket or not org:
             raise RuntimeError("Missing FRIEND_INFLUX_BUCKET / FRIEND_INFLUX_ORG in env.")
 
-        start = _utc_now() - timedelta(minutes=lookback_minutes)
+        start = _sync_now_minus_minutes(lookback_minutes)
 
         flux = f"""
 from(bucket: "{bucket}")
@@ -134,18 +119,12 @@ from(bucket: "{bucket}")
         field: str,
         lookback_minutes: int = 60 * 24,
     ) -> Optional[float]:
-        """
-        Returns the most recent numeric _value for (domain/entity_id/field) from FRIEND influx.
-
-        Example:
-          entity_id="kids_rooms", domain="climate", field="current_temperature"
-        """
         bucket = os.getenv("FRIEND_INFLUX_BUCKET")
         org = os.getenv("FRIEND_INFLUX_ORG")
         if not bucket or not org:
             raise RuntimeError("Missing FRIEND_INFLUX_BUCKET / FRIEND_INFLUX_ORG in env.")
 
-        start = _utc_now() - timedelta(minutes=lookback_minutes)
+        start = _sync_now_minus_minutes(lookback_minutes)
 
         flux = f"""
 from(bucket: "{bucket}")
@@ -182,18 +161,13 @@ from(bucket: "{bucket}")
         entity_id: str,
         minutes: int = 5,
     ) -> bool:
-        """
-        Returns True if motion was detected (state == "on")
-        at any point in the last `minutes`.
-        """
-
         bucket = os.getenv("FRIEND_INFLUX_BUCKET")
         org = os.getenv("FRIEND_INFLUX_ORG")
 
         if not bucket or not org:
             raise RuntimeError("Missing FRIEND_INFLUX_BUCKET / FRIEND_INFLUX_ORG in env.")
 
-        start = _utc_now() - timedelta(minutes=minutes)
+        start = _sync_now_minus_minutes(minutes)
 
         flux = f"""
 from(bucket: "{bucket}")
@@ -215,5 +189,34 @@ from(bucket: "{bucket}")
             return False
 
         df = tables if not isinstance(tables, list) else pd.concat(tables, ignore_index=True)
-
         return not df.empty
+
+
+def _sync_now_minus_days(days: int):
+    import asyncio
+    from datetime import datetime, timezone
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            return datetime.now(timezone.utc) - timedelta(days=days)
+    except RuntimeError:
+        pass
+
+    now = asyncio.run(get_simulated_utc_now())
+    return now - timedelta(days=days)
+
+
+def _sync_now_minus_minutes(minutes: int):
+    import asyncio
+    from datetime import datetime, timezone
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            return datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    except RuntimeError:
+        pass
+
+    now = asyncio.run(get_simulated_utc_now())
+    return now - timedelta(minutes=minutes)

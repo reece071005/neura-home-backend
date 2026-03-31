@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta, time as dtime
+from datetime import datetime, time as dtime
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -14,7 +14,12 @@ from ai_app.ai.xgb_cover_trainer import XGBCoverTrainer
 from ai_app.ai.suggestion_store import SuggestionStore, CooldownConfig
 from ai_app.services.room_client import fetch_all_rooms
 from ai_app.services.room_config_builder import build_config_from_entities
-from ai_app.ai.room_config import ROOM_CONFIG  # fallback
+from ai_app.ai.room_config import ROOM_CONFIG
+from ai_app.core.demo_time import (
+    get_simulated_local_now_dubai,
+    get_simulated_utc_now,
+    parse_hhmm_to_time,
+)
 
 DEFAULT_PRECONDITION = {
     "enabled": True,
@@ -25,63 +30,48 @@ DEFAULT_PRECONDITION = {
     "fallback_setpoint": 24.0,
 }
 
+
 async def _get_room_config(room_name: str) -> dict | None:
-    """
-    1) Try DB-driven rooms via main backend.
-    2) If that fails, fallback to ROOM_CONFIG.
-    Returns config shaped like:
-      {"lights":[], "climate":[], "covers":[], "motion":[], "precondition":{...}}
-    """
-    # --- try DB first ---
     try:
         rooms = await fetch_all_rooms()
         for r in rooms:
             if str(r.get("name")) == room_name:
                 entity_ids = r.get("entity_ids") or []
                 cfg = build_config_from_entities(entity_ids)
-                # ensure we always have precondition config
                 cfg["precondition"] = DEFAULT_PRECONDITION
                 return cfg
     except Exception as e:
         print(f"[AI] Failed to fetch rooms from backend: {e}")
 
-    # --- fallback to static config ---
     fallback = ROOM_CONFIG.get(room_name)
     if fallback:
-        # ensure fallback also has precondition default if missing
         fb = dict(fallback)
         fb["precondition"] = fb.get("precondition") or DEFAULT_PRECONDITION
         return fb
 
     return None
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+
+async def _utc_now() -> datetime:
+    return await get_simulated_utc_now()
 
 
-def _local_now_dubai() -> datetime:
-    # Dubai is UTC+4 (no DST). Keep explicit so server timezone doesn't matter.
-    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=4)))
+async def _local_now_dubai() -> datetime:
+    return await get_simulated_local_now_dubai()
 
 
 def _parse_hhmm(s: str) -> dtime:
-    hh, mm = s.split(":")
-    return dtime(hour=int(hh), minute=int(mm))
+    return parse_hhmm_to_time(s)
 
 
 class Predictor:
-    # ==============================
-    # Individual model inference
-    # ==============================
-
     @staticmethod
-    def predict_room_light_next_15m(
+    async def predict_room_light_next_15m(
         *,
         room: str,
         days_context: int = 7,
         cfg: BuildConfig = BuildConfig(),
     ) -> Dict[str, Any]:
-
         artifact = XGBLightTrainer.load_artifact(room)
         if not artifact:
             return {"ok": False, "room": room, "message": "Model not trained. Run /ai/train-room-xgb first."}
@@ -100,11 +90,10 @@ class Predictor:
             return {"ok": False, "room": room, "message": "Failed to build prediction features."}
 
         last_row = df_ml.iloc[-1]
-
         X = pd.DataFrame([last_row[artifact.feature_columns].to_dict()])
         prob_on = float(artifact.model.predict_proba(X)[0][1])
 
-        now = _utc_now()
+        now = await _utc_now()
 
         return {
             "ok": True,
@@ -117,13 +106,12 @@ class Predictor:
         }
 
     @staticmethod
-    def predict_room_climate_active_next_15m(
+    async def predict_room_climate_active_next_15m(
         *,
         room: str,
         days_context: int = 7,
         cfg: BuildConfig = BuildConfig(),
     ) -> Dict[str, Any]:
-
         artifact = XGBClimateTrainer.load_artifact(room)
         if not artifact:
             return {"ok": False, "room": room, "message": "Climate model not trained. Run /ai/train-climate-xgb first."}
@@ -150,10 +138,9 @@ class Predictor:
 
         last_row = df_ml.iloc[-1]
         X = pd.DataFrame([last_row[artifact.feature_columns].to_dict()])
-
         prob_active = float(artifact.model.predict_proba(X)[0][1])
 
-        now = _utc_now()
+        now = await _utc_now()
 
         return {
             "ok": True,
@@ -166,13 +153,12 @@ class Predictor:
         }
 
     @staticmethod
-    def predict_room_climate_setpoint_next_15m(
+    async def predict_room_climate_setpoint_next_15m(
         *,
         room: str,
         days_context: int = 7,
         cfg: BuildConfig = BuildConfig(),
     ) -> Dict[str, Any]:
-
         artifact = XGBClimateTempTrainer.load_artifact(room)
         if not artifact:
             return {"ok": False, "room": room, "message": "Setpoint model not trained. Run /ai/train-climate-temp-xgb first."}
@@ -198,10 +184,9 @@ class Predictor:
 
         last_row = df_ml.iloc[-1]
         X = pd.DataFrame([last_row[artifact.feature_columns].to_dict()])
-
         pred_setpoint = float(artifact.model.predict(X)[0])
 
-        now = _utc_now()
+        now = await _utc_now()
 
         return {
             "ok": True,
@@ -213,13 +198,12 @@ class Predictor:
         }
 
     @staticmethod
-    def predict_cover_position_next_15m(
+    async def predict_cover_position_next_15m(
         *,
         entity_id: str,
         days_context: int = 7,
         cfg: BuildConfig = BuildConfig(),
     ) -> Dict[str, Any]:
-
         artifact = XGBCoverTrainer.load_artifact(entity_id)
         if not artifact:
             return {"ok": False, "entity_id": entity_id, "message": "Cover model not trained. Run /ai/train-cover-xgb first."}
@@ -256,8 +240,7 @@ class Predictor:
         pred_pos = float(artifact.model.predict(X)[0])
         pred_pos = max(0.0, min(100.0, pred_pos))
 
-        now = _utc_now()
-
+        now = await _utc_now()
         current_pos = float(last["current_position"])
         delta = pred_pos - current_pos
 
@@ -273,10 +256,6 @@ class Predictor:
             "suggest_change": bool(abs(delta) >= 15.0),
         }
 
-    # ==============================
-    # Smart suggestion layer (cards)
-    # ==============================
-
     @staticmethod
     async def smart_room_suggestions(
         *,
@@ -284,13 +263,10 @@ class Predictor:
         motion_required: bool = True,
         cooldown_cfg: CooldownConfig = CooldownConfig(),
     ) -> Dict[str, Any]:
-
         config = await _get_room_config(room)
         if not config:
             return {"ok": False, "message": "Room not found in DB or fallback config."}
 
-        # ---- Check motion (recent window) ----
-        # Motion is still meaningful for lights/covers. Climate is handled separately by arrival preconditioning.
         motion_entities = config.get("motion", []) or []
         motion_detected = False
         motion_details: List[Dict[str, Any]] = []
@@ -315,15 +291,12 @@ class Predictor:
                     "error": str(e)
                 })
 
-        # NOTE: this gate will be applied to lights/covers suggestions only.
-        # We'll still compute climate preconditioning even if motion isn't detected.
         suggestions: List[Dict[str, Any]] = []
 
-        # ---- Lights ----
         if not (motion_required and motion_entities and not motion_detected):
             for entity in config.get("lights", []):
                 try:
-                    result = Predictor.predict_room_light_next_15m(room=entity)
+                    result = await Predictor.predict_room_light_next_15m(room=entity)
                     if not result.get("suggest_turn_on"):
                         continue
 
@@ -331,7 +304,6 @@ class Predictor:
                     if prob < 0.65:
                         continue
 
-                    # Cooldown check
                     in_cd = await SuggestionStore.is_in_cooldown(room=room, suggestion_type="light", entity_id=entity)
                     if in_cd:
                         continue
@@ -356,13 +328,12 @@ class Predictor:
                         }
                     })
 
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[AI] Light suggestion failed for {entity}: {e}")
 
-        # ---- Climate (ARRIVAL PRECONDITIONING) ----
         pre_cfg = (config.get("precondition") or {})
         if bool(pre_cfg.get("enabled", False)):
-            now_local = _local_now_dubai()
+            now_local = await _local_now_dubai()
             is_weekend = now_local.weekday() >= 5
 
             arrival_str = pre_cfg.get(
@@ -378,7 +349,6 @@ class Predictor:
                 hour=arrival_t.hour, minute=arrival_t.minute, second=0, microsecond=0
             )
 
-            # If arrival already passed today, do nothing.
             if arrival_dt > now_local:
                 minutes_to_arrival = (arrival_dt - now_local).total_seconds() / 60.0
                 in_window = 0 <= minutes_to_arrival <= lead_minutes
@@ -386,20 +356,17 @@ class Predictor:
                 if in_window:
                     for entity in config.get("climate", []):
                         try:
-                            # Cooldown check
                             in_cd = await SuggestionStore.is_in_cooldown(
                                 room=room, suggestion_type="climate", entity_id=entity
                             )
                             if in_cd:
                                 continue
 
-                            # Desired temperature from model (fallback to config value)
-                            setpoint_pred = Predictor.predict_room_climate_setpoint_next_15m(room=entity)
+                            setpoint_pred = await Predictor.predict_room_climate_setpoint_next_15m(room=entity)
                             desired = setpoint_pred.get("predicted_setpoint_celsius")
                             if desired is None:
                                 desired = fallback_setpoint
 
-                            # Current temperature from FRIEND influx
                             current_temp = FriendInfluxDataset.fetch_latest_numeric(
                                 entity_id=entity,
                                 domain="climate",
@@ -411,8 +378,6 @@ class Predictor:
                                 continue
 
                             temp_delta = float(desired) - float(current_temp)
-
-                            # Only act if meaningful gap
                             if abs(temp_delta) < min_temp_delta:
                                 continue
 
@@ -445,18 +410,16 @@ class Predictor:
                                 }
                             })
 
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"[AI] Climate suggestion failed for {entity}: {e}")
 
-        # ---- Covers ----
         if not (motion_required and motion_entities and not motion_detected):
             for entity in config.get("covers", []):
                 try:
-                    result = Predictor.predict_cover_position_next_15m(entity_id=entity)
+                    result = await Predictor.predict_cover_position_next_15m(entity_id=entity)
                     if not result.get("suggest_change"):
                         continue
 
-                    # Cooldown check
                     in_cd = await SuggestionStore.is_in_cooldown(room=room, suggestion_type="cover", entity_id=entity)
                     if in_cd:
                         continue
@@ -474,7 +437,7 @@ class Predictor:
                         "type": "cover",
                         "entity_id": entity,
                         "title": "Adjust blinds?",
-                        "subtitle": f"Predicted blind position should change soon.",
+                        "subtitle": "Predicted blind position should change soon.",
                         "predicted_position": predicted_pos,
                         "action": {
                             "domain": "cover",
@@ -484,8 +447,8 @@ class Predictor:
                         }
                     })
 
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[AI] Cover suggestion failed for {entity}: {e}")
 
         return {
             "ok": True,

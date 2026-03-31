@@ -1,18 +1,17 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Optional
 import os
 import pandas as pd
 from ai_app.core.influxdb_init import get_influx_query_api
+from ai_app.core.demo_time import get_simulated_utc_now
 
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
 
 @dataclass
 class DatasetWindow:
     hours: int = 168
+
 
 class InfluxDataset:
     @staticmethod
@@ -23,7 +22,7 @@ class InfluxDataset:
         window: DatasetWindow = DatasetWindow(),
     ) -> pd.DataFrame:
         bucket = os.getenv("INFLUX_BUCKET", "smart_home")
-        start = _utc_now() - timedelta(hours=window.hours)
+        start = _sync_now_minus_hours(window.hours)
 
         filters = [f'r._measurement == "device_state"']
         if entity_id:
@@ -64,7 +63,7 @@ from(bucket: "{bucket}")
     @staticmethod
     def fetch_user_actions_df(*, user_id: int, window: DatasetWindow = DatasetWindow()) -> pd.DataFrame:
         bucket = os.getenv("INFLUX_BUCKET", "smart_home")
-        start = _utc_now() - timedelta(hours=window.hours)
+        start = _sync_now_minus_hours(window.hours)
 
         flux = f"""
 from(bucket: "{bucket}")
@@ -86,3 +85,19 @@ from(bucket: "{bucket}")
 
         df = df.rename(columns={"_time": "time", "_value": "value"})
         return df
+
+
+def _sync_now_minus_hours(hours: int):
+    import asyncio
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # fallback to real utc if called in a strict sync context inside active loop
+            from datetime import datetime, timezone
+            return datetime.now(timezone.utc) - timedelta(hours=hours)
+    except RuntimeError:
+        pass
+
+    now = asyncio.run(get_simulated_utc_now())
+    return now - timedelta(hours=hours)

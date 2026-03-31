@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Literal
 from fastapi import APIRouter, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ai_app.ai.room_trainer import RoomTrainer
 from ai_app.ai.timeseries_builder import BuildConfig
@@ -13,6 +13,7 @@ from ai_app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
 from ai_app.ai.xgb_cover_trainer import XGBCoverTrainer
 from ai_app.ai.room_config import ROOM_CONFIG
 from ai_app.ai.suggestion_store import SuggestionStore
+from ai_app.core.demo_time import get_simulated_local_now_dubai
 
 
 router = APIRouter(prefix="/ai", tags=["AI"])
@@ -29,10 +30,6 @@ class SuggestionFeedback(BaseModel):
     meta: Optional[Dict[str, Any]] = None
 
 
-# =========================
-# Rooms
-# =========================
-
 @router.get("/rooms")
 async def list_rooms():
     rooms = []
@@ -47,10 +44,6 @@ async def list_rooms():
     return {"ok": True, "rooms": rooms}
 
 
-# =========================
-# Suggestions
-# =========================
-
 @router.get("/suggestion-cards")
 async def suggestion_cards(room: str = Query(...)):
     return await Predictor.smart_room_suggestions(room=room, motion_required=True)
@@ -59,7 +52,7 @@ async def suggestion_cards(room: str = Query(...)):
 @router.post("/suggestion-feedback")
 async def suggestion_feedback(payload: SuggestionFeedback):
     await SuggestionStore.log_feedback(
-        user_id=0,  # user handled in main API now
+        user_id=0,
         room=payload.room,
         suggestion_type=payload.type,
         entity_id=payload.entity_id,
@@ -74,10 +67,6 @@ async def smart_suggestions(room: str = Query(...)):
     return await Predictor.smart_room_suggestions(room=room)
 
 
-# =========================
-# Baseline
-# =========================
-
 @router.post("/train-room")
 async def train_room(room: str, days: int = 60):
     return RoomTrainer.train_room(room=room, days=days)
@@ -85,9 +74,7 @@ async def train_room(room: str, days: int = 60):
 
 @router.get("/predict-room")
 async def predict_room(room: str, hour: int, threshold: float = 0.25):
-    from datetime import datetime
-
-    now = datetime.utcnow()
+    now = await get_simulated_local_now_dubai()
     is_weekend = now.weekday() >= 5
     day_type = "weekend" if is_weekend else "weekday"
 
@@ -128,10 +115,6 @@ async def predict_room(room: str, hour: int, threshold: float = 0.25):
     }
 
 
-# =========================
-# XGBoost
-# =========================
-
 @router.post("/train-room-xgb")
 async def train_room_xgb_light(room: str, days: int = 60, horizon_minutes: int = 15):
     cfg = BuildConfig(freq="5min", horizon_minutes=horizon_minutes)
@@ -141,7 +124,7 @@ async def train_room_xgb_light(room: str, days: int = 60, horizon_minutes: int =
 @router.get("/predict-room-xgb")
 async def predict_room_xgb_light(room: str):
     cfg = BuildConfig(freq="5min", horizon_minutes=15)
-    return Predictor.predict_room_light_next_15m(room=room, days_context=7, cfg=cfg)
+    return await Predictor.predict_room_light_next_15m(room=room, days_context=7, cfg=cfg)
 
 
 @router.post("/train-climate-xgb")
@@ -153,7 +136,7 @@ async def train_room_xgb_climate(room: str, days: int = 60, horizon_minutes: int
 @router.get("/predict-climate-xgb")
 async def predict_room_xgb_climate(room: str):
     cfg = BuildConfig(freq="5min", horizon_minutes=15)
-    return Predictor.predict_room_climate_active_next_15m(room=room, days_context=7, cfg=cfg)
+    return await Predictor.predict_room_climate_active_next_15m(room=room, days_context=7, cfg=cfg)
 
 
 @router.post("/train-climate-temp-xgb")
@@ -165,7 +148,7 @@ async def train_room_xgb_climate_temp(room: str, days: int = 60, horizon_minutes
 @router.get("/predict-climate-temp-xgb")
 async def predict_room_xgb_climate_temp(room: str):
     cfg = BuildConfig(freq="5min", horizon_minutes=15)
-    return Predictor.predict_room_climate_setpoint_next_15m(room=room, days_context=7, cfg=cfg)
+    return await Predictor.predict_room_climate_setpoint_next_15m(room=room, days_context=7, cfg=cfg)
 
 
 @router.post("/train-cover-xgb")
@@ -177,4 +160,4 @@ async def train_cover_xgb(entity_id: str, days: int = 60, horizon_minutes: int =
 @router.get("/predict-cover-xgb")
 async def predict_cover_xgb(entity_id: str):
     cfg = BuildConfig(freq="5min", horizon_minutes=15)
-    return Predictor.predict_cover_position_next_15m(entity_id=entity_id, days_context=7, cfg=cfg)
+    return await Predictor.predict_cover_position_next_15m(entity_id=entity_id, days_context=7, cfg=cfg)

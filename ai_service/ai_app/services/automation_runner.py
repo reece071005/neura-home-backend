@@ -11,7 +11,6 @@ async def run_ai_for_all_rooms():
 
         try:
             result = await Predictor.smart_room_suggestions(room=room_name)
-            # Here you could auto-execute or log
             print(f"[AI] Suggestions for {room_name}: {len(result.get('suggestions', []))}")
         except Exception as e:
             print(f"[AI] Error processing room {room_name}: {e}")
