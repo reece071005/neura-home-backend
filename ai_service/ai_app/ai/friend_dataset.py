@@ -4,55 +4,34 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Optional
 
-import os
 import pandas as pd
-from influxdb_client import InfluxDBClient
 
 from ai_app.core.demo_time import get_simulated_utc_now
+from ai_app.core.influxdb_init import get_influx_query_api
 
 
 @dataclass
 class FriendWindow:
     days: int = 60
-
-
 class FriendInfluxDataset:
-    @staticmethod
-    def _get_client() -> InfluxDBClient:
-        url = os.getenv("FRIEND_INFLUX_URL")
-        token = os.getenv("FRIEND_INFLUX_TOKEN")
-        org = os.getenv("FRIEND_INFLUX_ORG")
 
-        if not url or not token or not org:
-            raise RuntimeError(
-                "Missing FRIEND_INFLUX_URL / FRIEND_INFLUX_TOKEN / FRIEND_INFLUX_ORG in env."
-            )
 
-        return InfluxDBClient(url=url, token=token, org=org)
-
+       # guys this is for reading from the local project influxdb, not the remote one.
+        #it will map and use the local measurement schema
     @staticmethod
     def fetch_room_state_df(*, room: str, days: int = 60) -> pd.DataFrame:
-        bucket = os.getenv("FRIEND_INFLUX_BUCKET")
-        org = os.getenv("FRIEND_INFLUX_ORG")
-
-        if not bucket or not org:
-            raise RuntimeError("Missing FRIEND_INFLUX_BUCKET / FRIEND_INFLUX_ORG in env.")
-
         start = _sync_now_minus_days(days)
 
         flux = f"""
-from(bucket: "{bucket}")
+from(bucket: "{_get_bucket()}")
   |> range(start: {start.isoformat()})
-  |> filter(fn: (r) => r._measurement == "state")
+  |> filter(fn: (r) => r._measurement == "device_state")
   |> filter(fn: (r) => r.entity_id == "{room}")
   |> keep(columns: ["_time","domain","entity_id","_field","_value"])
         """.strip()
 
-        client = FriendInfluxDataset._get_client()
-        query_api = client.query_api()
-
+        query_api = get_influx_query_api()
         tables = query_api.query_data_frame(flux)
-        client.close()
 
         if tables is None:
             return pd.DataFrame()
@@ -63,9 +42,15 @@ from(bucket: "{bucket}")
             return df
 
         df = df.rename(columns={"_time": "time", "_value": "value", "_field": "field"})
-        df["time"] = pd.to_datetime(df["time"], utc=True)
+        df["time"] = pd.to_datetime(df["time"], utc=True, errors="coerce")
         df = df.dropna(subset=["time"])
-        return df
+
+        keep = ["time", "domain", "entity_id", "field", "value"]
+        for col in keep:
+            if col not in df.columns:
+                df[col] = None
+
+        return df[keep].copy()
 
     @staticmethod
     def fetch_latest_state(
@@ -75,17 +60,12 @@ from(bucket: "{bucket}")
         field: str = "state",
         lookback_minutes: int = 60 * 24,
     ) -> Optional[str]:
-        bucket = os.getenv("FRIEND_INFLUX_BUCKET")
-        org = os.getenv("FRIEND_INFLUX_ORG")
-        if not bucket or not org:
-            raise RuntimeError("Missing FRIEND_INFLUX_BUCKET / FRIEND_INFLUX_ORG in env.")
-
         start = _sync_now_minus_minutes(lookback_minutes)
 
         flux = f"""
-from(bucket: "{bucket}")
+from(bucket: "{_get_bucket()}")
   |> range(start: {start.isoformat()})
-  |> filter(fn: (r) => r._measurement == "state")
+  |> filter(fn: (r) => r._measurement == "device_state")
   |> filter(fn: (r) => r.domain == "{domain}")
   |> filter(fn: (r) => r.entity_id == "{entity_id}")
   |> filter(fn: (r) => r._field == "{field}")
@@ -94,10 +74,8 @@ from(bucket: "{bucket}")
   |> limit(n: 1)
         """.strip()
 
-        client = FriendInfluxDataset._get_client()
-        query_api = client.query_api()
+        query_api = get_influx_query_api()
         tables = query_api.query_data_frame(flux)
-        client.close()
 
         if tables is None:
             return None
@@ -109,6 +87,7 @@ from(bucket: "{bucket}")
         v = df["_value"].iloc[0]
         if v is None:
             return None
+
         return str(v).strip().lower()
 
     @staticmethod
@@ -119,17 +98,12 @@ from(bucket: "{bucket}")
         field: str,
         lookback_minutes: int = 60 * 24,
     ) -> Optional[float]:
-        bucket = os.getenv("FRIEND_INFLUX_BUCKET")
-        org = os.getenv("FRIEND_INFLUX_ORG")
-        if not bucket or not org:
-            raise RuntimeError("Missing FRIEND_INFLUX_BUCKET / FRIEND_INFLUX_ORG in env.")
-
         start = _sync_now_minus_minutes(lookback_minutes)
 
         flux = f"""
-from(bucket: "{bucket}")
+from(bucket: "{_get_bucket()}")
   |> range(start: {start.isoformat()})
-  |> filter(fn: (r) => r._measurement == "state")
+  |> filter(fn: (r) => r._measurement == "device_state")
   |> filter(fn: (r) => r.domain == "{domain}")
   |> filter(fn: (r) => r.entity_id == "{entity_id}")
   |> filter(fn: (r) => r._field == "{field}")
@@ -138,10 +112,8 @@ from(bucket: "{bucket}")
   |> limit(n: 1)
         """.strip()
 
-        client = FriendInfluxDataset._get_client()
-        query_api = client.query_api()
+        query_api = get_influx_query_api()
         tables = query_api.query_data_frame(flux)
-        client.close()
 
         if tables is None:
             return None
@@ -161,18 +133,12 @@ from(bucket: "{bucket}")
         entity_id: str,
         minutes: int = 5,
     ) -> bool:
-        bucket = os.getenv("FRIEND_INFLUX_BUCKET")
-        org = os.getenv("FRIEND_INFLUX_ORG")
-
-        if not bucket or not org:
-            raise RuntimeError("Missing FRIEND_INFLUX_BUCKET / FRIEND_INFLUX_ORG in env.")
-
         start = _sync_now_minus_minutes(minutes)
 
         flux = f"""
-from(bucket: "{bucket}")
+from(bucket: "{_get_bucket()}")
   |> range(start: {start.isoformat()})
-  |> filter(fn: (r) => r._measurement == "state")
+  |> filter(fn: (r) => r._measurement == "device_state")
   |> filter(fn: (r) => r.domain == "binary_sensor")
   |> filter(fn: (r) => r.entity_id == "{entity_id}")
   |> filter(fn: (r) => r._field == "state")
@@ -180,16 +146,19 @@ from(bucket: "{bucket}")
   |> limit(n: 1)
         """.strip()
 
-        client = FriendInfluxDataset._get_client()
-        query_api = client.query_api()
+        query_api = get_influx_query_api()
         tables = query_api.query_data_frame(flux)
-        client.close()
 
         if tables is None:
             return False
 
         df = tables if not isinstance(tables, list) else pd.concat(tables, ignore_index=True)
         return not df.empty
+
+
+def _get_bucket() -> str:
+    import os
+    return os.getenv("INFLUX_BUCKET", "smart_home")
 
 
 def _sync_now_minus_days(days: int):

@@ -1,51 +1,60 @@
 import asyncio
 import json
 import os
-import websockets
+
 import aiohttp
+import websockets
 
 
 HA_WS_URL = os.getenv("HA_WS_URL")
 HA_TOKEN = os.getenv("HA_TOKEN")
 
-AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://ai_service:8000")
-APP_URL = os.getenv("APP_URL", "http://app:8000")
+AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://ai_service:8002")
+APP_URL = os.getenv("APP_URL", "http://api:8000")
 
 
-async def execute_command(entity_id:str, param):
+async def execute_command(entity_id: str, param):
     device_type = entity_id.split(".")[0]
-    param_map = {"light":"state", "climate":"temperature", "cover":"position"}
+    param_map = {
+        "light": "state",
+        "climate": "temperature",
+        "cover": "position",
+    }
+
+    payload_key = param_map.get(device_type)
+    if payload_key is None:
+        return {"ok": False, "error": f"Unsupported domain: {device_type}"}
 
     async with aiohttp.ClientSession() as session:
-        async with session.post(f"{APP_URL}/homecontrollers/{device_type}", json={"entity_id": entity_id, param_map.get(device_type): param}) as resp:
-            return await resp.json()
+        async with session.post(
+            f"{APP_URL}/homecontrollers/{device_type}",
+            json={"entity_id": entity_id, payload_key: param},
+        ) as resp:
+            try:
+                return await resp.json()
+            except Exception:
+                return {"ok": False, "status": resp.status}
+
 
 async def handle_motion_event(entity_id: str):
-    """
-    Called when motion sensor turns ON.
-    Triggers AI automation.
-    """
     print(f"[WS] Motion detected: {entity_id}")
 
-    # Map motion sensor to room
     room_mapping = {
         "binary_sensor.kids_rooms_occupancy": "reece_room",
         "binary_sensor.guest_room_occupancy": "guest_room",
-        # add others here
     }
 
     room = room_mapping.get(entity_id)
     if not room:
         return
 
-    # Call AI smart suggestions
     async with aiohttp.ClientSession() as session:
         async with session.get(
             f"{AI_SERVICE_URL}/ai/smart-suggestions",
-            params={"room": room}
+            params={"room": room},
         ) as resp:
             if resp.status != 200:
-                print("AI service error")
+                print(f"[WS] AI service error: status={resp.status}")
                 return
 
             ai_data = await resp.json()
@@ -57,24 +66,26 @@ async def handle_motion_event(entity_id: str):
         action = suggestion.get("action", {})
         entity = action.get("entity_id")
 
+        if not entity:
+            continue
+
         if suggestion_type == "light":
             await execute_command(entity, "on")
 
         elif suggestion_type == "climate":
-           await execute_command(entity, action.get("temperature"))
+            await execute_command(entity, action.get("temperature"))
 
         elif suggestion_type == "cover":
             position = action.get("position")
-            await execute_command(entity, int(position))
+            if position is not None:
+                await execute_command(entity, int(position))
 
 
 async def start_ha_websocket_listener():
-    print("[WS] Listener starting...👽👽👽👽👽 ")
-    """
-    Connects to HA WebSocket and listens for motion events.
-    """
+    print("[WS] Listener starting...")
+
     if not HA_WS_URL or not HA_TOKEN:
-        print("HA_WS_URL or HA_TOKEN not configured.")
+        print("[WS] HA_WS_URL or HA_TOKEN not configured. Skipping listener.")
         return
 
     while True:
@@ -82,23 +93,30 @@ async def start_ha_websocket_listener():
             async with websockets.connect(HA_WS_URL) as ws:
                 print("[WS] Connected to Home Assistant")
 
-                # Receive auth_required
+                # auth_required
                 await ws.recv()
 
-                # Authenticate
-                await ws.send(json.dumps({
-                    "type": "auth",
-                    "access_token": HA_TOKEN
-                }))
+                await ws.send(
+                    json.dumps(
+                        {
+                            "type": "auth",
+                            "access_token": HA_TOKEN,
+                        }
+                    )
+                )
 
-                await ws.recv()  # auth_ok
+                # auth_ok
+                await ws.recv()
 
-                # Subscribe to state_changed events
-                await ws.send(json.dumps({
-                    "id": 1,
-                    "type": "subscribe_events",
-                    "event_type": "state_changed"
-                }))
+                await ws.send(
+                    json.dumps(
+                        {
+                            "id": 1,
+                            "type": "subscribe_events",
+                            "event_type": "state_changed",
+                        }
+                    )
+                )
 
                 await ws.recv()
 

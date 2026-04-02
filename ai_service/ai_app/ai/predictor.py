@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, time as dtime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
@@ -12,6 +12,7 @@ from ai_app.ai.xgb_climate_trainer import XGBClimateTrainer
 from ai_app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
 from ai_app.ai.xgb_cover_trainer import XGBCoverTrainer
 from ai_app.ai.suggestion_store import SuggestionStore, CooldownConfig
+from ai_app.ai.user_preference_store import UserPreferenceStore
 from ai_app.services.room_client import fetch_all_rooms
 from ai_app.services.room_config_builder import build_config_from_entities
 from ai_app.ai.room_config import ROOM_CONFIG
@@ -25,9 +26,12 @@ DEFAULT_PRECONDITION = {
     "enabled": True,
     "arrival_time_weekday": "18:30",
     "arrival_time_weekend": "13:00",
-    "lead_minutes": 20,
+    "lead_minutes": 30,
     "min_temp_delta": 1.0,
     "fallback_setpoint": 24.0,
+    "active_confidence_threshold": 0.65,
+    "min_setpoint_c": 18.0,
+    "max_setpoint_c": 28.0,
 }
 
 
@@ -38,7 +42,7 @@ async def _get_room_config(room_name: str) -> dict | None:
             if str(r.get("name")) == room_name:
                 entity_ids = r.get("entity_ids") or []
                 cfg = build_config_from_entities(entity_ids)
-                cfg["precondition"] = DEFAULT_PRECONDITION
+                cfg["precondition"] = DEFAULT_PRECONDITION.copy()
                 return cfg
     except Exception as e:
         print(f"[AI] Failed to fetch rooms from backend: {e}")
@@ -46,10 +50,30 @@ async def _get_room_config(room_name: str) -> dict | None:
     fallback = ROOM_CONFIG.get(room_name)
     if fallback:
         fb = dict(fallback)
-        fb["precondition"] = fb.get("precondition") or DEFAULT_PRECONDITION
+        fb["precondition"] = dict(fb.get("precondition") or DEFAULT_PRECONDITION)
         return fb
 
     return None
+
+
+async def _get_effective_precondition_config(room: str, user_id: Optional[int]) -> dict[str, Any]:
+    config = await _get_room_config(room)
+    if not config:
+        return {}
+
+    base_pre = dict(config.get("precondition") or DEFAULT_PRECONDITION)
+
+    if user_id is None:
+        return base_pre
+
+    try:
+        saved = await UserPreferenceStore.get_climate_preferences(user_id=user_id, room=room)
+        if saved:
+            base_pre.update(saved)
+    except Exception as e:
+        print(f"[AI] Failed to load user climate preferences: {e}")
+
+    return base_pre
 
 
 async def _utc_now() -> datetime:
@@ -62,6 +86,21 @@ async def _local_now_dubai() -> datetime:
 
 def _parse_hhmm(s: str) -> dtime:
     return parse_hhmm_to_time(s)
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _is_valid_setpoint(value: float | None, *, min_c: float, max_c: float) -> bool:
+    if value is None:
+        return False
+    return min_c <= value <= max_c
 
 
 class Predictor:
@@ -260,12 +299,15 @@ class Predictor:
     async def smart_room_suggestions(
         *,
         room: str,
+        user_id: Optional[int] = None,
         motion_required: bool = True,
         cooldown_cfg: CooldownConfig = CooldownConfig(),
     ) -> Dict[str, Any]:
         config = await _get_room_config(room)
         if not config:
             return {"ok": False, "message": "Room not found in DB or fallback config."}
+
+        effective_pre_cfg = await _get_effective_precondition_config(room, user_id)
 
         motion_entities = config.get("motion", []) or []
         motion_detected = False
@@ -331,7 +373,7 @@ class Predictor:
                 except Exception as e:
                     print(f"[AI] Light suggestion failed for {entity}: {e}")
 
-        pre_cfg = (config.get("precondition") or {})
+        pre_cfg = effective_pre_cfg or {}
         if bool(pre_cfg.get("enabled", False)):
             now_local = await _local_now_dubai()
             is_weekend = now_local.weekday() >= 5
@@ -340,9 +382,12 @@ class Predictor:
                 "arrival_time_weekend" if is_weekend else "arrival_time_weekday",
                 "18:30",
             )
-            lead_minutes = int(pre_cfg.get("lead_minutes", 20))
+            lead_minutes = int(pre_cfg.get("lead_minutes", 30))
             min_temp_delta = float(pre_cfg.get("min_temp_delta", 1.0))
             fallback_setpoint = float(pre_cfg.get("fallback_setpoint", 24.0))
+            active_conf_threshold = float(pre_cfg.get("active_confidence_threshold", 0.65))
+            min_setpoint_c = float(pre_cfg.get("min_setpoint_c", 18.0))
+            max_setpoint_c = float(pre_cfg.get("max_setpoint_c", 28.0))
 
             arrival_t = _parse_hhmm(arrival_str)
             arrival_dt = now_local.replace(
@@ -362,10 +407,22 @@ class Predictor:
                             if in_cd:
                                 continue
 
-                            setpoint_pred = await Predictor.predict_room_climate_setpoint_next_15m(room=entity)
-                            desired = setpoint_pred.get("predicted_setpoint_celsius")
-                            if desired is None:
+                            active_result = await Predictor.predict_room_climate_active_next_15m(room=entity)
+                            if not active_result.get("ok"):
+                                print(f"[AI] Climate active prediction unavailable for {entity}: {active_result.get('message')}")
+                                continue
+
+                            prob_active = float(active_result.get("probability_climate_active") or 0.0)
+                            if prob_active < active_conf_threshold:
+                                continue
+
+                            setpoint_result = await Predictor.predict_room_climate_setpoint_next_15m(room=entity)
+                            desired = _safe_float(setpoint_result.get("predicted_setpoint_celsius"))
+
+                            used_fallback = False
+                            if not _is_valid_setpoint(desired, min_c=min_setpoint_c, max_c=max_setpoint_c):
                                 desired = fallback_setpoint
+                                used_fallback = True
 
                             current_temp = FriendInfluxDataset.fetch_latest_numeric(
                                 entity_id=entity,
@@ -388,20 +445,27 @@ class Predictor:
                                 cfg=cooldown_cfg,
                             )
 
+                            subtitle = (
+                                f"Arrival at {arrival_str}. "
+                                f"HVAC likely needed soon ({prob_active:.2f}). "
+                                f"Current {float(current_temp):.1f}°C → target {float(desired):.1f}°C."
+                            )
+
+                            if used_fallback:
+                                subtitle += " Using fallback target."
+
                             suggestions.append({
                                 "type": "climate",
                                 "entity_id": entity,
-                                "confidence": 0.90,
+                                "confidence": prob_active,
                                 "title": "Pre-cool/heat before arrival?",
-                                "subtitle": (
-                                    f"Arrival at {arrival_str}. "
-                                    f"Current {float(current_temp):.1f}°C → target {float(desired):.1f}°C. "
-                                    f"Starting now to be comfortable when you enter."
-                                ),
+                                "subtitle": subtitle,
                                 "arrival_time_local": arrival_str,
                                 "minutes_to_arrival": round(float(minutes_to_arrival), 1),
                                 "current_temperature": round(float(current_temp), 2),
                                 "suggested_setpoint": round(float(desired), 2),
+                                "used_fallback_setpoint": used_fallback,
+                                "user_id": user_id,
                                 "action": {
                                     "domain": "climate",
                                     "service": "set_temperature",
@@ -453,7 +517,9 @@ class Predictor:
         return {
             "ok": True,
             "room": room,
+            "user_id": user_id,
             "motion_detected": motion_detected,
             "motion": motion_details,
+            "precondition_config_used": effective_pre_cfg,
             "suggestions": suggestions,
         }

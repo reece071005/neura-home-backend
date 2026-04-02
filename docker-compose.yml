@@ -94,14 +94,20 @@ services:
     container_name: neura_ai
     ports:
       - "8002:8002"
-
     environment:
+      INFLUX_SOURCE: local
+      INFLUX_READONLY: "false"
       INFLUX_URL: http://influxdb:8086
       INFLUX_TOKEN: neura-super-token-change-later
       INFLUX_ORG: neura
       INFLUX_BUCKET: smart_home
+
       REDIS_URL: redis://redis:6379/0
       APP_URL: http://api:8000
+      AI_SERVICE_URL: http://ai_service:8002
+
+      HA_WS_URL: ${HA_WS_URL}
+      HA_TOKEN: ${HA_TOKEN}
 
     depends_on:
       influxdb:

@@ -1,3 +1,5 @@
+##this file is no longer in use and it here for falling back purposes omnly.
+
 ROOM_CONFIG = {
     "reece_room": {
         "lights": ["reece_room"],
