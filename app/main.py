@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.database import engine, Base
-from app.routes import auth, users, homecontrollers, voice, userfaces, vision, hub, rooms
+from app.routes import auth, users, homecontrollers, voice, userfaces, vision, hub, rooms, notifications
 from app.core.redis_init import init_redis, close_redis
 from app.core.cache_management import CacheManagement
 from app.config import load_home_assistant_config_from_db
@@ -40,6 +40,7 @@ app.include_router(userfaces.router)
 app.include_router(vision.router)
 app.include_router(hub.router)
 app.include_router(rooms.router)
+app.include_router(notifications.router)
 
 @app.get("/")
 async def read_root():

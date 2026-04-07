@@ -86,3 +86,20 @@ class Room(Base):
     def username(self) -> str | None:
         """Username of the user who owns this room (when user is loaded)."""
         return self.user.username if self.user else None
+
+
+class PushNotificationToken(Base):
+    __tablename__ = "push_notification_tokens"
+    __table_args__ = (
+        UniqueConstraint("user_id", "device_id", name="uq_push_token_user_device"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    expo_push_token = Column(String, nullable=False, unique=True, index=True)
+    device_id = Column(String, nullable=True, index=True)
+    platform = Column(String, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    last_seen_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
