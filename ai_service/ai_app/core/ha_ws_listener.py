@@ -1,9 +1,13 @@
 import asyncio
 import json
 import os
+from typing import Any
 
 import aiohttp
 import websockets
+
+from ai_app.services.influx_logger import InfluxLogger
+from ai_app.core.demo_time import get_simulated_utc_now
 
 
 HA_WS_URL = os.getenv("HA_WS_URL")
@@ -11,6 +15,43 @@ HA_TOKEN = os.getenv("HA_TOKEN")
 
 AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://ai_service:8002")
 APP_URL = os.getenv("APP_URL", "http://api:8000")
+
+
+def _build_ha_api_base() -> str:
+    if not HA_WS_URL:
+        raise RuntimeError("HA_WS_URL is not configured.")
+
+    url = HA_WS_URL.strip()
+
+    if url.startswith("ws://"):
+        base = "http://" + url[len("ws://"):]
+    elif url.startswith("wss://"):
+        base = "https://" + url[len("wss://"):]
+    else:
+        base = url
+
+    if base.endswith("/api/websocket"):
+        base = base[: -len("/api/websocket")]
+    elif base.endswith("/websocket"):
+        base = base[: -len("/websocket")]
+
+    return base.rstrip("/")
+
+
+async def fetch_all_homeassistant_states() -> list[dict[str, Any]]:
+    if not HA_TOKEN:
+        raise RuntimeError("HA_TOKEN is not configured.")
+
+    base = _build_ha_api_base()
+    url = f"{base}/api/states"
+    headers = {"Authorization": f"Bearer {HA_TOKEN}", "Content-Type": "application/json"}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                raise RuntimeError(f"HA states request failed: status={resp.status}, body={text}")
+            return await resp.json()
 
 
 async def execute_command(entity_id: str, param):
@@ -81,6 +122,56 @@ async def handle_motion_event(entity_id: str):
                 await execute_command(entity, int(position))
 
 
+async def log_state_change_to_influx(entity_id: str, new_state: dict):
+    if "." not in entity_id:
+        return
+
+    domain = entity_id.split(".", 1)[0]
+    state = new_state.get("state")
+    attributes = new_state.get("attributes", {}) or {}
+
+    await InfluxLogger.log_device_state(
+        entity_id=entity_id,
+        domain=domain,
+        state=state,
+        attributes=attributes,
+        area=None,
+        source="ws_state_changed",
+        ts=await get_simulated_utc_now(),
+    )
+
+
+async def run_startup_snapshot():
+    try:
+        states = await fetch_all_homeassistant_states()
+        ts = await get_simulated_utc_now()
+        written = 0
+
+        for item in states:
+            entity_id = item.get("entity_id")
+            if not entity_id or "." not in entity_id:
+                continue
+
+            domain = entity_id.split(".", 1)[0]
+            state = item.get("state")
+            attributes = item.get("attributes", {}) or {}
+
+            await InfluxLogger.log_device_state(
+                entity_id=entity_id,
+                domain=domain,
+                state=state,
+                attributes=attributes,
+                area=None,
+                source="startup_snapshot",
+                ts=ts,
+            )
+            written += 1
+
+        print(f"[WS] Startup snapshot written to Influx: {written} states")
+    except Exception as e:
+        print(f"[WS] Startup snapshot failed: {e}")
+
+
 async def start_ha_websocket_listener():
     print("[WS] Listener starting...")
 
@@ -93,7 +184,6 @@ async def start_ha_websocket_listener():
             async with websockets.connect(HA_WS_URL) as ws:
                 print("[WS] Connected to Home Assistant")
 
-                # auth_required
                 await ws.recv()
 
                 await ws.send(
@@ -105,7 +195,6 @@ async def start_ha_websocket_listener():
                     )
                 )
 
-                # auth_ok
                 await ws.recv()
 
                 await ws.send(
@@ -120,7 +209,7 @@ async def start_ha_websocket_listener():
 
                 await ws.recv()
 
-                print("[WS] Listening for motion events...")
+                print("[WS] Listening for state_changed events...")
 
                 while True:
                     raw = await ws.recv()
@@ -138,10 +227,12 @@ async def start_ha_websocket_listener():
                     if not entity_id or not new_state:
                         continue
 
-                    if not entity_id.startswith("binary_sensor"):
-                        continue
+                    try:
+                        await log_state_change_to_influx(entity_id, new_state)
+                    except Exception as e:
+                        print(f"[WS] Failed to log state change for {entity_id}: {e}")
 
-                    if new_state.get("state") == "on":
+                    if entity_id.startswith("binary_sensor") and new_state.get("state") == "on":
                         await handle_motion_event(entity_id)
 
         except Exception as e:

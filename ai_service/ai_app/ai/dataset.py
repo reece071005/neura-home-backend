@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
+from datetime import datetime
 from typing import Optional
 import os
 import pandas as pd
@@ -85,6 +86,51 @@ from(bucket: "{bucket}")
 
         df = df.rename(columns={"_time": "time", "_value": "value"})
         return df
+
+    @staticmethod
+    def fetch_room_device_state_df(
+            *,
+            entity_ids: list[str],
+            window: DatasetWindow = DatasetWindow(),
+    ) -> pd.DataFrame:
+        bucket = os.getenv("INFLUX_BUCKET", "smart_home")
+        start = _sync_now_minus_hours(window.hours)
+
+        if not entity_ids:
+            return pd.DataFrame()
+
+        entity_filters = " or ".join([f'r.entity_id == "{eid}"' for eid in entity_ids])
+
+        flux = f"""
+from(bucket: "{bucket}")
+    |> range(start: {start.isoformat()})
+    |> filter(fn: (r) => r._measurement == "device_state")
+    |> filter(fn: (r) => {entity_filters})
+    |> keep(columns: ["_time","_field","_value","entity_id","domain","area","source"])
+        """.strip()
+
+        query_api = get_influx_query_api()
+        tables = query_api.query_data_frame(flux)
+
+        if tables is None or (isinstance(tables, list) and len(tables) == 0):
+            return pd.DataFrame()
+
+        df = tables if not isinstance(tables, list) else pd.concat(tables, ignore_index=True)
+        if df.empty:
+            return df
+
+        wide = df.pivot_table(
+            index=["_time", "entity_id", "domain", "area", "source"],
+            columns="_field",
+            values="_value",
+            aggfunc="last"
+        ).reset_index()
+
+        wide.columns = [str(c) for c in wide.columns]
+        wide = wide.rename(columns={"_time": "time"})
+        wide["time"] = pd.to_datetime(wide["time"], utc=True, errors="coerce")
+        wide = wide.dropna(subset=["time"])
+        return wide
 
 
 def _sync_now_minus_hours(hours: int):

@@ -109,6 +109,10 @@ services:
       HA_WS_URL: ${HA_WS_URL}
       HA_TOKEN: ${HA_TOKEN}
 
+      AUTO_RETRAIN_ENABLED: "false"
+      AUTO_RETRAIN_INTERVAL_HOURS: "12"
+      AUTO_RETRAIN_DAYS: "30"
+
     depends_on:
       influxdb:
         condition: service_started

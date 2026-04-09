@@ -3,18 +3,20 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-from influxdb_client import Point, WritePrecision
-from ai_app.core.influxdb_init import get_influx_write_api
 import os
+from influxdb_client import Point, WritePrecision
+
+from ai_app.core.influxdb_init import get_influx_write_api
+from ai_app.core.demo_time import get_simulated_utc_now
 
 
-def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+async def _now_utc() -> datetime:
+    return await get_simulated_utc_now()
 
 
 class InfluxLogger:
     @staticmethod
-    def log_device_state(
+    async def log_device_state(
         *,
         entity_id: str,
         domain: str,
@@ -27,7 +29,7 @@ class InfluxLogger:
         bucket = os.getenv("INFLUX_BUCKET", "smart_home")
         org = os.getenv("INFLUX_ORG", "neura")
 
-        ts = ts or _now_utc()
+        ts = ts or await _now_utc()
         attributes = attributes or {}
 
         point = (
@@ -43,7 +45,7 @@ class InfluxLogger:
         if state is not None:
             point = point.field("state", str(state))
 
-        for k in ["brightness", "temperature", "humidity", "power", "energy", "percentage", "position"]:
+        for k in ["brightness", "temperature", "humidity", "power", "energy", "percentage", "position", "current_temperature"]:
             v = attributes.get(k)
             if isinstance(v, (int, float)):
                 point = point.field(k, float(v))
@@ -56,11 +58,11 @@ class InfluxLogger:
 
         point = point.time(ts, WritePrecision.NS)
 
-        write_api = get_influx_write_api()
-        write_api.write(bucket=bucket, org=org, record=point)
+        write_api = await get_influx_write_api()
+        await write_api.write(bucket=bucket, org=org, record=point)
 
     @staticmethod
-    def log_user_action(
+    async def log_user_action(
         *,
         user_id: int,
         entity_id: str,
@@ -73,7 +75,7 @@ class InfluxLogger:
         bucket = os.getenv("INFLUX_BUCKET", "smart_home")
         org = os.getenv("INFLUX_ORG", "neura")
 
-        ts = ts or _now_utc()
+        ts = ts or await _now_utc()
         meta = meta or {}
 
         point = (
@@ -97,5 +99,5 @@ class InfluxLogger:
 
         point = point.time(ts, WritePrecision.NS)
 
-        write_api = get_influx_write_api()
-        write_api.write(bucket=bucket, org=org, record=point)
+        write_api = await get_influx_write_api()
+        await write_api.write(bucket=bucket, org=org, record=point)

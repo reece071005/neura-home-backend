@@ -16,6 +16,8 @@ from ai_app.ai.room_config import ROOM_CONFIG
 from ai_app.ai.suggestion_store import SuggestionStore
 from ai_app.ai.user_preference_store import UserPreferenceStore, ClimatePreference
 from ai_app.core.demo_time import get_simulated_local_now_dubai
+from ai_app.ai.dataset import InfluxDataset, DatasetWindow
+from ai_app.services.room_client import fetch_all_rooms
 
 
 router = APIRouter(prefix="/ai", tags=["AI"])
@@ -287,3 +289,96 @@ async def train_cover_xgb(entity_id: str, days: int = 60, horizon_minutes: int =
 async def predict_cover_xgb(entity_id: str):
     cfg = BuildConfig(freq="5min", horizon_minutes=15)
     return await Predictor.predict_cover_position_next_15m(entity_id=entity_id, days_context=7, cfg=cfg)
+
+
+@router.get("/training-readiness")
+async def training_readiness(room: str, min_days: int = 15, lookback_days: int = 60):
+    try:
+        rooms = await fetch_all_rooms()
+    except Exception as e:
+        return {
+            "ok": False,
+            "room": room,
+            "ready": False,
+            "message": f"Failed to fetch rooms: {e}",
+        }
+
+    room_obj = None
+    for r in rooms:
+        if str(r.get("name")) == room:
+            room_obj = r
+            break
+
+    if not room_obj:
+        return {
+            "ok": False,
+            "room": room,
+            "ready": False,
+            "message": "Room not found.",
+        }
+
+    entity_ids = room_obj.get("entity_ids") or []
+    if not entity_ids:
+        return {
+            "ok": True,
+            "room": room,
+            "ready": False,
+            "days_available": 0,
+            "min_days_required": min_days,
+            "message": "Room has no configured devices.",
+        }
+
+    try:
+        df = InfluxDataset.fetch_room_device_state_df(
+            entity_ids=entity_ids,
+            window=DatasetWindow(hours=lookback_days * 24),
+        )
+    except Exception as e:
+        return {
+            "ok": False,
+            "room": room,
+            "ready": False,
+            "message": f"Failed to read Influx data: {e}",
+        }
+
+    if df.empty or "time" not in df.columns:
+        return {
+            "ok": True,
+            "room": room,
+            "ready": False,
+            "days_available": 0,
+            "min_days_required": min_days,
+            "message": "No historical device data found yet.",
+        }
+
+    min_time = df["time"].min()
+    max_time = df["time"].max()
+
+    if min_time is None or max_time is None:
+        return {
+            "ok": True,
+            "room": room,
+            "ready": False,
+            "days_available": 0,
+            "min_days_required": min_days,
+            "message": "No valid timestamps found in historical data.",
+        }
+
+    days_available = max(0, (max_time - min_time).days)
+    ready = days_available >= min_days
+
+    return {
+        "ok": True,
+        "room": room,
+        "ready": ready,
+        "days_available": days_available,
+        "min_days_required": min_days,
+        "data_points": int(len(df)),
+        "first_seen_utc": min_time.isoformat(),
+        "last_seen_utc": max_time.isoformat(),
+        "message": (
+            "Enough historical data is available for training."
+            if ready
+            else "Not enough historical data yet."
+        ),
+    }
