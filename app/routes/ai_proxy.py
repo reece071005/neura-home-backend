@@ -217,3 +217,19 @@ async def predict_climate_temp(
         "/ai/predict-climate-temp-xgb",
         params={"room": room},
     )
+
+@router.get("/training-readiness")
+async def training_readiness(
+    room: str,
+    min_days: int = 15,
+    lookback_days: int = 60,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai(
+        "/ai/training-readiness",
+        params={
+            "room": room,
+            "min_days": min_days,
+            "lookback_days": lookback_days,
+        },
+    )
