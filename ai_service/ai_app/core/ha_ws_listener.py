@@ -111,15 +111,57 @@ async def handle_motion_event(entity_id: str):
             continue
 
         if suggestion_type == "light":
-            await execute_command(entity, "on")
+            result = await execute_command(entity, "on")
+            if result and result.get("success", False):
+                await create_ai_notification(
+                    message=f"AI turned on {entity} after motion was detected in {room}.",
+                    room=room,
+                    entity_id=entity,
+                    notification_type="executed",
+                    action_type="light",
+                    meta={
+                        "trigger": "motion",
+                        "source_sensor": entity_id,
+                        "suggestion": suggestion,
+                    },
+                )
 
         elif suggestion_type == "climate":
-            await execute_command(entity, action.get("temperature"))
+            temp = action.get("temperature")
+            result = await execute_command(entity, temp)
+            if result and result.get("success", False):
+                await create_ai_notification(
+                    message=f"AI set {entity} to {temp}°C for {room}.",
+                    room=room,
+                    entity_id=entity,
+                    notification_type="executed",
+                    action_type="climate",
+                    meta={
+                        "trigger": "motion_or_preconditioning",
+                        "source_sensor": entity_id,
+                        "temperature": temp,
+                        "suggestion": suggestion,
+                    },
+                )
 
         elif suggestion_type == "cover":
             position = action.get("position")
             if position is not None:
-                await execute_command(entity, int(position))
+                result = await execute_command(entity, int(position))
+                if result and result.get("success", False):
+                    await create_ai_notification(
+                        message=f"AI adjusted {entity} to position {int(position)} in {room}.",
+                        room=room,
+                        entity_id=entity,
+                        notification_type="executed",
+                        action_type="cover",
+                        meta={
+                            "trigger": "motion",
+                            "source_sensor": entity_id,
+                            "position": int(position),
+                            "suggestion": suggestion,
+                        },
+                    )
 
 
 async def log_state_change_to_influx(entity_id: str, new_state: dict):
@@ -238,3 +280,33 @@ async def start_ha_websocket_listener():
         except Exception as e:
             print(f"[WS] Error: {e}. Reconnecting in 5 seconds...")
             await asyncio.sleep(5)
+
+async def create_ai_notification(
+    *,
+    message: str,
+    room: str,
+    entity_id: str,
+    notification_type: str,
+    action_type: str,
+    meta: dict | None = None,
+):
+    payload = {
+        "message": message,
+        "room": room,
+        "entity_id": entity_id,
+        "notification_type": notification_type,
+        "action_type": action_type,
+        "meta": meta or {},
+    }
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            f"{APP_URL}/ai-notifications/notification",
+            json=payload,
+        ) as resp:
+            if resp.status >= 400:
+                try:
+                    text = await resp.text()
+                except Exception:
+                    text = "<no body>"
+                print(f"[WS] Failed to create AI notification: status={resp.status}, body={text}")

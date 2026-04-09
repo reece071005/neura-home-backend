@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.database import engine, Base
 from app.routes import notifications
+from app.routes import ai_notifications
 from app.routes import (
     auth,
     users,
@@ -61,6 +62,7 @@ app.include_router(automation.router)
 app.include_router(demo_time.router)
 
 app.include_router(notifications.router)
+app.include_router(ai_notifications.router)
 
 @app.get("/")
 async def read_root():

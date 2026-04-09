@@ -56,6 +56,20 @@ class DetectionNotification(Base):
     is_read = Column(Boolean, nullable=False, default=False)
     read_at = Column(DateTime(timezone=True), nullable=True)
 
+class AINotification(Base):
+    __tablename__ = "ai_notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message = Column(String, nullable=False)
+    room = Column(String, nullable=True, index=True)
+    entity_id = Column(String, nullable=True, index=True)
+    notification_type = Column(String, nullable=False, default="executed")  # suggested / executed
+    action_type = Column(String, nullable=True)  # light / climate / cover
+    meta = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+
 class Configuration(Base):
     __tablename__ = "configurations"
 
