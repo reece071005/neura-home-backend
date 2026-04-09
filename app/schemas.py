@@ -271,3 +271,24 @@ class RoomResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ExpoPushTokenUpsert(BaseModel):
+    expo_push_token: str
+    device_id: Optional[str] = None
+    platform: Optional[str] = None
+
+
+class PushNotificationTokenResponse(BaseModel):
+    id: int
+    user_id: int
+    expo_push_token: str
+    device_id: Optional[str] = None
+    platform: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    last_seen_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
