@@ -18,8 +18,8 @@ from ai_app.ai.user_preference_store import UserPreferenceStore, ClimatePreferen
 from ai_app.core.demo_time import get_simulated_local_now_dubai
 from ai_app.ai.dataset import InfluxDataset, DatasetWindow
 from ai_app.services.room_client import fetch_all_rooms
-
-
+from ai_app.ai.room_ai_preference_store import RoomAIPreferenceStore
+from ai_app.ai.training_preference_store import TrainingPreferenceStore
 router = APIRouter(prefix="/ai", tags=["AI"])
 
 SuggestionType = Literal["light", "climate", "cover"]
@@ -32,6 +32,11 @@ class SuggestionFeedback(BaseModel):
     entity_id: str
     decision: FeedbackDecision
     meta: Optional[Dict[str, Any]] = None
+
+class RoomAIPreferencePayload(BaseModel):
+    user_id: int
+    room: str
+    enabled: bool
 
 
 class ClimatePreferencePayload(BaseModel):
@@ -46,6 +51,14 @@ class ClimatePreferencePayload(BaseModel):
     active_confidence_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
     min_setpoint_c: float = Field(default=18.0, ge=10.0, le=35.0)
     max_setpoint_c: float = Field(default=28.0, ge=10.0, le=35.0)
+
+class TrainingPreferencePayload(BaseModel):
+    user_id: int
+    room: str
+    enabled: bool = True
+    frequency: Literal["manual", "daily", "weekly", "monthly"] = "manual"
+
+
 
     @field_validator("arrival_time_weekday", "arrival_time_weekend")
     @classmethod
@@ -111,6 +124,87 @@ async def smart_suggestions(
 ):
     return await Predictor.smart_room_suggestions(room=room, user_id=user_id)
 
+@router.post("/room-ai/preferences")
+async def set_room_ai_preferences(payload: RoomAIPreferencePayload):
+    saved = await RoomAIPreferenceStore.set_room_ai_enabled(
+        user_id=payload.user_id,
+        room=payload.room,
+        enabled=payload.enabled,
+    )
+
+    return {
+        "ok": True,
+        "user_id": payload.user_id,
+        "room": payload.room,
+        "preferences": saved,
+    }
+
+
+@router.get("/room-ai/preferences")
+async def get_room_ai_preferences(
+    user_id: int = Query(...),
+    room: str = Query(...),
+):
+    saved = await RoomAIPreferenceStore.get_room_ai_enabled(user_id=user_id, room=room)
+
+    try:
+        rooms = await fetch_all_rooms()
+    except Exception:
+        rooms = []
+
+    room_obj = None
+    for r in rooms:
+        if str(r.get("name")) == room:
+            room_obj = r
+            break
+
+    has_motion_sensor = False
+    if room_obj:
+        entity_ids = room_obj.get("entity_ids") or []
+        has_motion_sensor = any(
+            str(e).startswith("binary_sensor.") and ("occupancy" in str(e) or "motion" in str(e))
+            for e in entity_ids
+        )
+
+    default_enabled = has_motion_sensor
+
+    if not saved:
+        return {
+            "ok": True,
+            "user_id": user_id,
+            "room": room,
+            "preferences": {
+                "enabled": default_enabled
+            },
+            "defaulted": True,
+            "has_motion_sensor": has_motion_sensor,
+            "message": (
+                "No saved room AI preference. Using default based on sensor availability."
+            ),
+        }
+
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "room": room,
+        "preferences": saved,
+        "defaulted": False,
+        "has_motion_sensor": has_motion_sensor,
+    }
+
+
+@router.delete("/room-ai/preferences")
+async def delete_room_ai_preferences(
+    user_id: int = Query(...),
+    room: str = Query(...),
+):
+    deleted = await RoomAIPreferenceStore.delete_room_ai_enabled(user_id=user_id, room=room)
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "room": room,
+        "deleted": deleted,
+    }
 
 @router.post("/climate/preferences")
 async def set_climate_preferences(payload: ClimatePreferencePayload):
@@ -381,4 +475,64 @@ async def training_readiness(room: str, min_days: int = 15, lookback_days: int =
             if ready
             else "Not enough historical data yet."
         ),
+    }
+
+@router.post("/training/preferences")
+async def set_training_preferences(payload: TrainingPreferencePayload):
+    saved = await TrainingPreferenceStore.set_training_preferences(
+        user_id=payload.user_id,
+        room=payload.room,
+        enabled=payload.enabled,
+        frequency=payload.frequency,
+    )
+
+    return {
+        "ok": True,
+        "user_id": payload.user_id,
+        "room": payload.room,
+        "preferences": saved,
+    }
+
+
+@router.get("/training/preferences")
+async def get_training_preferences(
+    user_id: int = Query(...),
+    room: str = Query(...),
+):
+    saved = await TrainingPreferenceStore.get_training_preferences(user_id=user_id, room=room)
+
+    if not saved:
+        return {
+            "ok": True,
+            "user_id": user_id,
+            "room": room,
+            "preferences": {
+                "enabled": True,
+                "frequency": "manual",
+                "last_trained_at": None,
+            },
+            "defaulted": True,
+            "message": "No saved training preferences for this user/room.",
+        }
+
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "room": room,
+        "preferences": saved,
+        "defaulted": False,
+    }
+
+
+@router.delete("/training/preferences")
+async def delete_training_preferences(
+    user_id: int = Query(...),
+    room: str = Query(...),
+):
+    deleted = await TrainingPreferenceStore.delete_training_preferences(user_id=user_id, room=room)
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "room": room,
+        "deleted": deleted,
     }

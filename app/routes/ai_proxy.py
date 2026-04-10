@@ -106,6 +106,37 @@ async def smart_suggestions(
         params={"room": room, "user_id": current_user.id},
     )
 
+@router.post("/room-ai/preferences")
+async def set_room_ai_preferences(
+    payload: dict,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai("/ai/room-ai/preferences", method="POST", json=payload)
+
+
+@router.get("/room-ai/preferences")
+async def get_room_ai_preferences(
+    room: str,
+    user_id: int,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai(
+        "/ai/room-ai/preferences",
+        params={"room": room, "user_id": user_id},
+    )
+
+
+@router.delete("/room-ai/preferences")
+async def delete_room_ai_preferences(
+    room: str,
+    user_id: int,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai(
+        "/ai/room-ai/preferences",
+        method="DELETE",
+        params={"room": room, "user_id": user_id},
+    )
 
 @router.get("/climate/preferences")
 async def get_climate_preferences(
@@ -232,4 +263,37 @@ async def training_readiness(
             "min_days": min_days,
             "lookback_days": lookback_days,
         },
+    )
+
+
+@router.post("/training/preferences")
+async def set_training_preferences(
+    payload: dict,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai("/ai/training/preferences", method="POST", json=payload)
+
+
+@router.get("/training/preferences")
+async def get_training_preferences(
+    room: str,
+    user_id: int,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai(
+        "/ai/training/preferences",
+        params={"room": room, "user_id": user_id},
+    )
+
+
+@router.delete("/training/preferences")
+async def delete_training_preferences(
+    room: str,
+    user_id: int,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai(
+        "/ai/training/preferences",
+        method="DELETE",
+        params={"room": room, "user_id": user_id},
     )

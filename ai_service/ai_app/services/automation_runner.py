@@ -1,9 +1,10 @@
 import asyncio
-import os
+from datetime import datetime, timedelta, timezone
 
 from ai_app.services.room_client import fetch_all_rooms
 from ai_app.ai.predictor import Predictor
 from ai_app.ai.room_trainer import RoomTrainer
+from ai_app.ai.training_preference_store import TrainingPreferenceStore
 
 
 async def run_ai_for_all_rooms():
@@ -29,34 +30,68 @@ async def automation_loop(interval_seconds: int = 60):
         await asyncio.sleep(interval_seconds)
 
 
-async def retrain_all_rooms(days: int = 30):
-    rooms = await fetch_all_rooms()
+def _is_due(*, frequency: str, last_trained_at: str | None) -> bool:
+    if frequency == "manual":
+        return False
 
-    for room in rooms:
-        room_name = room["name"]
+    if not last_trained_at:
+        return True
+
+    try:
+        last_dt = datetime.fromisoformat(last_trained_at)
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return True
+
+    now = datetime.now(timezone.utc)
+
+    if frequency == "daily":
+        return now - last_dt >= timedelta(days=1)
+
+    if frequency == "weekly":
+        return now - last_dt >= timedelta(days=7)
+
+    if frequency == "monthly":
+        return now - last_dt >= timedelta(days=30)
+
+    return False
+
+
+async def retrain_due_rooms(days: int = 30):
+    prefs = await TrainingPreferenceStore.list_all_training_preferences()
+
+    for pref in prefs:
+        user_id = pref["user_id"]
+        room = pref["room"]
+        enabled = bool(pref.get("enabled", True))
+        frequency = str(pref.get("frequency", "manual"))
+        last_trained_at = pref.get("last_trained_at")
+
+        if not enabled:
+            continue
+
+        if not _is_due(frequency=frequency, last_trained_at=last_trained_at):
+            continue
+
         try:
-            result = RoomTrainer.train_room(room=room_name, days=days)
-            print(f"[RETRAIN] {room_name}: {result}")
+            result = RoomTrainer.train_room(room=room, days=days)
+            print(f"[RETRAIN] room={room} user_id={user_id} result={result}")
+            await TrainingPreferenceStore.mark_trained_now(user_id=user_id, room=room)
         except Exception as e:
-            print(f"[RETRAIN] Failed for {room_name}: {e}")
+            print(f"[RETRAIN] Failed for room={room} user_id={user_id}: {e}")
 
 
 async def retrain_loop():
-    enabled = os.getenv("AUTO_RETRAIN_ENABLED", "false").strip().lower() in {"1", "true", "yes", "y"}
-    interval_hours = int(os.getenv("AUTO_RETRAIN_INTERVAL_HOURS", "12"))
-    days = int(os.getenv("AUTO_RETRAIN_DAYS", "30"))
+    check_interval_minutes = 10
+    lookback_days = 30
 
-    if not enabled:
-        print("[RETRAIN] Auto retraining disabled.")
-        while True:
-            await asyncio.sleep(3600)
-
-    print(f"[RETRAIN] Auto retraining enabled. interval_hours={interval_hours}, days={days}")
+    print(f"[RETRAIN] Preference-based retraining loop running every {check_interval_minutes} minutes.")
 
     while True:
         try:
-            await retrain_all_rooms(days=days)
+            await retrain_due_rooms(days=lookback_days)
         except Exception as e:
             print(f"[RETRAIN_LOOP] {e}")
 
-        await asyncio.sleep(interval_hours * 3600)
+        await asyncio.sleep(check_interval_minutes * 60)

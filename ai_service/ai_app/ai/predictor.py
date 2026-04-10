@@ -21,6 +21,7 @@ from ai_app.core.demo_time import (
     get_simulated_utc_now,
     parse_hhmm_to_time,
 )
+from ai_app.ai.room_ai_preference_store import RoomAIPreferenceStore
 
 DEFAULT_PRECONDITION = {
     "enabled": True,
@@ -307,9 +308,31 @@ class Predictor:
         if not config:
             return {"ok": False, "message": "Room not found in DB or fallback config."}
 
+        motion_entities = config.get("motion", []) or []
+        has_motion_sensor = len(motion_entities) > 0
+
+        ai_enabled = has_motion_sensor  # default behavior: off if no motion sensor, on if there is one
+
+        if user_id is not None:
+            saved_pref = await RoomAIPreferenceStore.get_room_ai_enabled(user_id=user_id, room=room)
+            if saved_pref is not None and "enabled" in saved_pref:
+                ai_enabled = bool(saved_pref["enabled"])
+
+        if not ai_enabled:
+            return {
+                "ok": True,
+                "room": room,
+                "ai_enabled": False,
+                "has_motion_sensor": has_motion_sensor,
+                "motion_detected": False,
+                "motion": [],
+                "suggestions": [],
+                "message": "AI is disabled for this room.",
+            }
+
         effective_pre_cfg = await _get_effective_precondition_config(room, user_id)
 
-        motion_entities = config.get("motion", []) or []
+        #motion_entities = config.get("motion", []) or []
         motion_detected = False
         motion_details: List[Dict[str, Any]] = []
 
