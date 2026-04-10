@@ -22,13 +22,13 @@ class ClimatePreference:
 
 class UserPreferenceStore:
     @staticmethod
-    def _key(user_id: int, room: str) -> str:
-        return f"ai:user_prefs:{user_id}:{room}:climate"
+    def _key(room: str) -> str:
+        return f"ai:room_prefs:{room}:climate"
 
     @staticmethod
-    async def get_climate_preferences(*, user_id: int, room: str) -> Optional[dict[str, Any]]:
+    async def get_climate_preferences(*, room: str) -> Optional[dict[str, Any]]:
         r = get_redis()
-        raw = await r.get(UserPreferenceStore._key(user_id, room))
+        raw = await r.get(UserPreferenceStore._key(room))
         if not raw:
             return None
 
@@ -41,17 +41,16 @@ class UserPreferenceStore:
     @staticmethod
     async def set_climate_preferences(
         *,
-        user_id: int,
         room: str,
         preferences: ClimatePreference,
     ) -> dict[str, Any]:
         r = get_redis()
         payload = asdict(preferences)
-        await r.set(UserPreferenceStore._key(user_id, room), json.dumps(payload))
+        await r.set(UserPreferenceStore._key(room), json.dumps(payload))
         return payload
 
     @staticmethod
-    async def delete_climate_preferences(*, user_id: int, room: str) -> bool:
+    async def delete_climate_preferences(*, room: str) -> bool:
         r = get_redis()
-        deleted = await r.delete(UserPreferenceStore._key(user_id, room))
+        deleted = await r.delete(UserPreferenceStore._key(room))
         return bool(deleted)

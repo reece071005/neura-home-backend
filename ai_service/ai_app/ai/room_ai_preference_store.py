@@ -14,21 +14,21 @@ class RoomAIPreference:
 
 class RoomAIPreferenceStore:
     @staticmethod
-    def _key(*, user_id: int, room: str) -> str:
-        return f"ai:room_pref:{user_id}:{room}"
+    def _key(*, room: str) -> str:
+        return f"ai:room_pref:{room}"
 
     @staticmethod
-    async def set_room_ai_enabled(*, user_id: int, room: str, enabled: bool) -> dict:
+    async def set_room_ai_enabled(*, room: str, enabled: bool) -> dict:
         r = get_redis()
         pref = RoomAIPreference(enabled=enabled)
         payload = asdict(pref)
-        await r.set(RoomAIPreferenceStore._key(user_id=user_id, room=room), json.dumps(payload))
+        await r.set(RoomAIPreferenceStore._key(room=room), json.dumps(payload))
         return payload
 
     @staticmethod
-    async def get_room_ai_enabled(*, user_id: int, room: str) -> Optional[dict]:
+    async def get_room_ai_enabled(*, room: str) -> Optional[dict]:
         r = get_redis()
-        raw = await r.get(RoomAIPreferenceStore._key(user_id=user_id, room=room))
+        raw = await r.get(RoomAIPreferenceStore._key(room=room))
         if not raw:
             return None
         try:
@@ -37,7 +37,7 @@ class RoomAIPreferenceStore:
             return None
 
     @staticmethod
-    async def delete_room_ai_enabled(*, user_id: int, room: str) -> bool:
+    async def delete_room_ai_enabled(*, room: str) -> bool:
         r = get_redis()
-        deleted = await r.delete(RoomAIPreferenceStore._key(user_id=user_id, room=room))
+        deleted = await r.delete(RoomAIPreferenceStore._key(room=room))
         return bool(deleted)

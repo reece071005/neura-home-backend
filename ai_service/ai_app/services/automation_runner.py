@@ -62,7 +62,6 @@ async def retrain_due_rooms(days: int = 30):
     prefs = await TrainingPreferenceStore.list_all_training_preferences()
 
     for pref in prefs:
-        user_id = pref["user_id"]
         room = pref["room"]
         enabled = bool(pref.get("enabled", True))
         frequency = str(pref.get("frequency", "manual"))
@@ -76,10 +75,10 @@ async def retrain_due_rooms(days: int = 30):
 
         try:
             result = RoomTrainer.train_room(room=room, days=days)
-            print(f"[RETRAIN] room={room} user_id={user_id} result={result}")
-            await TrainingPreferenceStore.mark_trained_now(user_id=user_id, room=room)
+            print(f"[RETRAIN] room={room} result={result}")
+            await TrainingPreferenceStore.mark_trained_now(room=room)
         except Exception as e:
-            print(f"[RETRAIN] Failed for room={room} user_id={user_id}: {e}")
+            print(f"[RETRAIN] Failed for room={room}: {e}")
 
 
 async def retrain_loop():

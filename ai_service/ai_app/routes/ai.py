@@ -34,13 +34,11 @@ class SuggestionFeedback(BaseModel):
     meta: Optional[Dict[str, Any]] = None
 
 class RoomAIPreferencePayload(BaseModel):
-    user_id: int
     room: str
     enabled: bool
 
 
 class ClimatePreferencePayload(BaseModel):
-    user_id: int
     room: str
     enabled: bool = True
     arrival_time_weekday: str = "18:30"
@@ -53,7 +51,6 @@ class ClimatePreferencePayload(BaseModel):
     max_setpoint_c: float = Field(default=28.0, ge=10.0, le=35.0)
 
 class TrainingPreferencePayload(BaseModel):
-    user_id: int
     room: str
     enabled: bool = True
     frequency: Literal["manual", "daily", "weekly", "monthly"] = "manual"
@@ -99,9 +96,8 @@ async def list_rooms():
 @router.get("/suggestion-cards")
 async def suggestion_cards(
     room: str = Query(...),
-    user_id: Optional[int] = Query(default=None),
 ):
-    return await Predictor.smart_room_suggestions(room=room, user_id=user_id, motion_required=True)
+    return await Predictor.smart_room_suggestions(room=room, motion_required=True)
 
 
 @router.post("/suggestion-feedback")
@@ -120,21 +116,18 @@ async def suggestion_feedback(payload: SuggestionFeedback):
 @router.get("/smart-suggestions")
 async def smart_suggestions(
     room: str = Query(...),
-    user_id: Optional[int] = Query(default=None),
 ):
-    return await Predictor.smart_room_suggestions(room=room, user_id=user_id)
+    return await Predictor.smart_room_suggestions(room=room)
 
 @router.post("/room-ai/preferences")
 async def set_room_ai_preferences(payload: RoomAIPreferencePayload):
     saved = await RoomAIPreferenceStore.set_room_ai_enabled(
-        user_id=payload.user_id,
         room=payload.room,
         enabled=payload.enabled,
     )
 
     return {
         "ok": True,
-        "user_id": payload.user_id,
         "room": payload.room,
         "preferences": saved,
     }
@@ -142,10 +135,9 @@ async def set_room_ai_preferences(payload: RoomAIPreferencePayload):
 
 @router.get("/room-ai/preferences")
 async def get_room_ai_preferences(
-    user_id: int = Query(...),
     room: str = Query(...),
 ):
-    saved = await RoomAIPreferenceStore.get_room_ai_enabled(user_id=user_id, room=room)
+    saved = await RoomAIPreferenceStore.get_room_ai_enabled(room=room)
 
     try:
         rooms = await fetch_all_rooms()
@@ -171,21 +163,17 @@ async def get_room_ai_preferences(
     if not saved:
         return {
             "ok": True,
-            "user_id": user_id,
             "room": room,
             "preferences": {
                 "enabled": default_enabled
             },
             "defaulted": True,
             "has_motion_sensor": has_motion_sensor,
-            "message": (
-                "No saved room AI preference. Using default based on sensor availability."
-            ),
+            "message": "No saved room AI preference. Using default based on sensor availability.",
         }
 
     return {
         "ok": True,
-        "user_id": user_id,
         "room": room,
         "preferences": saved,
         "defaulted": False,
@@ -195,13 +183,11 @@ async def get_room_ai_preferences(
 
 @router.delete("/room-ai/preferences")
 async def delete_room_ai_preferences(
-    user_id: int = Query(...),
     room: str = Query(...),
 ):
-    deleted = await RoomAIPreferenceStore.delete_room_ai_enabled(user_id=user_id, room=room)
+    deleted = await RoomAIPreferenceStore.delete_room_ai_enabled(room=room)
     return {
         "ok": True,
-        "user_id": user_id,
         "room": room,
         "deleted": deleted,
     }
@@ -221,52 +207,43 @@ async def set_climate_preferences(payload: ClimatePreferencePayload):
     )
 
     saved = await UserPreferenceStore.set_climate_preferences(
-        user_id=payload.user_id,
         room=payload.room,
         preferences=prefs,
     )
 
     return {
         "ok": True,
-        "user_id": payload.user_id,
         "room": payload.room,
         "preferences": saved,
     }
 
-
 @router.get("/climate/preferences")
 async def get_climate_preferences(
-    user_id: int = Query(...),
     room: str = Query(...),
 ):
-    saved = await UserPreferenceStore.get_climate_preferences(user_id=user_id, room=room)
+    saved = await UserPreferenceStore.get_climate_preferences(room=room)
 
     if not saved:
         return {
             "ok": True,
-            "user_id": user_id,
             "room": room,
             "preferences": None,
-            "message": "No saved climate preferences for this user/room.",
+            "message": "No saved climate preferences for this room.",
         }
 
     return {
         "ok": True,
-        "user_id": user_id,
         "room": room,
         "preferences": saved,
     }
 
-
 @router.delete("/climate/preferences")
 async def delete_climate_preferences(
-    user_id: int = Query(...),
     room: str = Query(...),
 ):
-    deleted = await UserPreferenceStore.delete_climate_preferences(user_id=user_id, room=room)
+    deleted = await UserPreferenceStore.delete_climate_preferences(room=room)
     return {
         "ok": True,
-        "user_id": user_id,
         "room": room,
         "deleted": deleted,
     }
@@ -275,15 +252,17 @@ async def delete_climate_preferences(
 @router.get("/climate/preconditioning-preview")
 async def climate_preconditioning_preview(
     room: str = Query(...),
-    user_id: Optional[int] = Query(default=None),
 ):
-    result = await Predictor.smart_room_suggestions(room=room, user_id=user_id)
-    climate_suggestions = [s for s in result.get("suggestions", []) if s.get("type") == "climate"]
+    result = await Predictor.smart_room_suggestions(room=room)
+
+    climate_suggestions = [
+        s for s in result.get("suggestions", [])
+        if s.get("type") == "climate"
+    ]
 
     return {
         "ok": True,
         "room": room,
-        "user_id": user_id,
         "precondition_config_used": result.get("precondition_config_used"),
         "climate_suggestions": climate_suggestions,
     }
@@ -480,7 +459,6 @@ async def training_readiness(room: str, min_days: int = 15, lookback_days: int =
 @router.post("/training/preferences")
 async def set_training_preferences(payload: TrainingPreferencePayload):
     saved = await TrainingPreferenceStore.set_training_preferences(
-        user_id=payload.user_id,
         room=payload.room,
         enabled=payload.enabled,
         frequency=payload.frequency,
@@ -488,7 +466,6 @@ async def set_training_preferences(payload: TrainingPreferencePayload):
 
     return {
         "ok": True,
-        "user_id": payload.user_id,
         "room": payload.room,
         "preferences": saved,
     }
@@ -496,15 +473,13 @@ async def set_training_preferences(payload: TrainingPreferencePayload):
 
 @router.get("/training/preferences")
 async def get_training_preferences(
-    user_id: int = Query(...),
     room: str = Query(...),
 ):
-    saved = await TrainingPreferenceStore.get_training_preferences(user_id=user_id, room=room)
+    saved = await TrainingPreferenceStore.get_training_preferences(room=room)
 
     if not saved:
         return {
             "ok": True,
-            "user_id": user_id,
             "room": room,
             "preferences": {
                 "enabled": True,
@@ -512,12 +487,11 @@ async def get_training_preferences(
                 "last_trained_at": None,
             },
             "defaulted": True,
-            "message": "No saved training preferences for this user/room.",
+            "message": "No saved training preferences for this room.",
         }
 
     return {
         "ok": True,
-        "user_id": user_id,
         "room": room,
         "preferences": saved,
         "defaulted": False,
@@ -526,13 +500,11 @@ async def get_training_preferences(
 
 @router.delete("/training/preferences")
 async def delete_training_preferences(
-    user_id: int = Query(...),
     room: str = Query(...),
 ):
-    deleted = await TrainingPreferenceStore.delete_training_preferences(user_id=user_id, room=room)
+    deleted = await TrainingPreferenceStore.delete_training_preferences(room=room)
     return {
         "ok": True,
-        "user_id": user_id,
         "room": room,
         "deleted": deleted,
     }

@@ -92,7 +92,7 @@ async def suggestion_cards(
 ):
     return await call_ai(
         "/ai/suggestion-cards",
-        params={"room": room, "user_id": current_user.id},
+        params={"room": room},
     )
 
 
@@ -103,7 +103,7 @@ async def smart_suggestions(
 ):
     return await call_ai(
         "/ai/smart-suggestions",
-        params={"room": room, "user_id": current_user.id},
+        params={"room": room},
     )
 
 @router.post("/room-ai/preferences")
@@ -117,62 +117,53 @@ async def set_room_ai_preferences(
 @router.get("/room-ai/preferences")
 async def get_room_ai_preferences(
     room: str,
-    user_id: int,
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
     return await call_ai(
         "/ai/room-ai/preferences",
-        params={"room": room, "user_id": user_id},
+        params={"room": room},
     )
 
 
 @router.delete("/room-ai/preferences")
 async def delete_room_ai_preferences(
     room: str,
-    user_id: int,
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
     return await call_ai(
         "/ai/room-ai/preferences",
         method="DELETE",
-        params={"room": room, "user_id": user_id},
+        params={"room": room},
     )
-
-@router.get("/climate/preferences")
-async def get_climate_preferences(
-    room: str = Query(...),
-    current_user: models.User = Depends(auth.get_current_active_user),
-):
-    return await call_ai(
-        "/ai/climate/preferences",
-        params={"user_id": current_user.id, "room": room},
-    )
-
 
 @router.post("/climate/preferences")
 async def set_climate_preferences(
-    payload: ClimatePreferencePayload,
+    payload: dict,
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
-    ai_payload = payload.model_dump()
-    ai_payload["user_id"] = current_user.id
+    return await call_ai("/ai/climate/preferences", method="POST", json=payload)
 
+
+@router.get("/climate/preferences")
+async def get_climate_preferences(
+    room: str,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
     return await call_ai(
         "/ai/climate/preferences",
-        method="POST",
-        json=ai_payload,
+        params={"room": room},
     )
 
 
 @router.delete("/climate/preferences")
 async def delete_climate_preferences(
-    room: str = Query(...),
+    room: str,
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
     return await call_ai(
         "/ai/climate/preferences",
         method="DELETE",
-        params={"user_id": current_user.id, "room": room},
+        params={"room": room},
     )
 
 
@@ -183,7 +174,7 @@ async def climate_preconditioning_preview(
 ):
     return await call_ai(
         "/ai/climate/preconditioning-preview",
-        params={"room": room, "user_id": current_user.id},
+        params={"room": room,},
     )
 
 
@@ -277,23 +268,21 @@ async def set_training_preferences(
 @router.get("/training/preferences")
 async def get_training_preferences(
     room: str,
-    user_id: int,
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
     return await call_ai(
         "/ai/training/preferences",
-        params={"room": room, "user_id": user_id},
+        params={"room": room},
     )
 
 
 @router.delete("/training/preferences")
 async def delete_training_preferences(
     room: str,
-    user_id: int,
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
     return await call_ai(
         "/ai/training/preferences",
         method="DELETE",
-        params={"room": room, "user_id": user_id},
+        params={"room": room},
     )

@@ -57,22 +57,19 @@ async def _get_room_config(room_name: str) -> dict | None:
     return None
 
 
-async def _get_effective_precondition_config(room: str, user_id: Optional[int]) -> dict[str, Any]:
+async def _get_effective_precondition_config(room: str) -> dict[str, Any]:
     config = await _get_room_config(room)
     if not config:
         return {}
 
     base_pre = dict(config.get("precondition") or DEFAULT_PRECONDITION)
 
-    if user_id is None:
-        return base_pre
-
     try:
-        saved = await UserPreferenceStore.get_climate_preferences(user_id=user_id, room=room)
+        saved = await UserPreferenceStore.get_climate_preferences(room=room)
         if saved:
             base_pre.update(saved)
     except Exception as e:
-        print(f"[AI] Failed to load user climate preferences: {e}")
+        print(f"[AI] Failed to load climate preferences: {e}")
 
     return base_pre
 
@@ -300,7 +297,6 @@ class Predictor:
     async def smart_room_suggestions(
         *,
         room: str,
-        user_id: Optional[int] = None,
         motion_required: bool = True,
         cooldown_cfg: CooldownConfig = CooldownConfig(),
     ) -> Dict[str, Any]:
@@ -313,10 +309,9 @@ class Predictor:
 
         ai_enabled = has_motion_sensor  # default behavior: off if no motion sensor, on if there is one
 
-        if user_id is not None:
-            saved_pref = await RoomAIPreferenceStore.get_room_ai_enabled(user_id=user_id, room=room)
-            if saved_pref is not None and "enabled" in saved_pref:
-                ai_enabled = bool(saved_pref["enabled"])
+        saved_pref = await RoomAIPreferenceStore.get_room_ai_enabled(room=room)
+        if saved_pref is not None and "enabled" in saved_pref:
+            ai_enabled = bool(saved_pref["enabled"])
 
         if not ai_enabled:
             return {
@@ -330,7 +325,7 @@ class Predictor:
                 "message": "AI is disabled for this room.",
             }
 
-        effective_pre_cfg = await _get_effective_precondition_config(room, user_id)
+        effective_pre_cfg = await _get_effective_precondition_config(room)
 
         #motion_entities = config.get("motion", []) or []
         motion_detected = False
@@ -488,7 +483,6 @@ class Predictor:
                                 "current_temperature": round(float(current_temp), 2),
                                 "suggested_setpoint": round(float(desired), 2),
                                 "used_fallback_setpoint": used_fallback,
-                                "user_id": user_id,
                                 "action": {
                                     "domain": "climate",
                                     "service": "set_temperature",
@@ -540,7 +534,6 @@ class Predictor:
         return {
             "ok": True,
             "room": room,
-            "user_id": user_id,
             "motion_detected": motion_detected,
             "motion": motion_details,
             "precondition_config_used": effective_pre_cfg,

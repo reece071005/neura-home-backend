@@ -20,8 +20,8 @@ class TrainingPreference:
 
 class TrainingPreferenceStore:
     @staticmethod
-    def _key(*, user_id: int, room: str) -> str:
-        return f"ai:training_pref:{user_id}:{room}"
+    def _key(*, room: str) -> str:
+        return f"ai:training_pref:{room}"
 
     @staticmethod
     def _index_key() -> str:
@@ -30,7 +30,6 @@ class TrainingPreferenceStore:
     @staticmethod
     async def set_training_preferences(
         *,
-        user_id: int,
         room: str,
         enabled: bool,
         frequency: TrainingFrequency,
@@ -43,19 +42,19 @@ class TrainingPreferenceStore:
             last_trained_at=None,
         )
 
-        existing = await TrainingPreferenceStore.get_training_preferences(user_id=user_id, room=room)
+        existing = await TrainingPreferenceStore.get_training_preferences(room=room)
         if existing and existing.get("last_trained_at"):
             payload.last_trained_at = existing["last_trained_at"]
 
         data = asdict(payload)
-        await r.set(TrainingPreferenceStore._key(user_id=user_id, room=room), json.dumps(data))
-        await r.sadd(TrainingPreferenceStore._index_key(), f"{user_id}:{room}")
+        await r.set(TrainingPreferenceStore._key(room=room), json.dumps(data))
+        await r.sadd(TrainingPreferenceStore._index_key(), room)
         return data
 
     @staticmethod
-    async def get_training_preferences(*, user_id: int, room: str) -> Optional[dict]:
+    async def get_training_preferences(*, room: str) -> Optional[dict]:
         r = get_redis()
-        raw = await r.get(TrainingPreferenceStore._key(user_id=user_id, room=room))
+        raw = await r.get(TrainingPreferenceStore._key(room=room))
         if not raw:
             return None
         try:
@@ -64,43 +63,36 @@ class TrainingPreferenceStore:
             return None
 
     @staticmethod
-    async def delete_training_preferences(*, user_id: int, room: str) -> bool:
+    async def delete_training_preferences(*, room: str) -> bool:
         r = get_redis()
-        deleted = await r.delete(TrainingPreferenceStore._key(user_id=user_id, room=room))
-        await r.srem(TrainingPreferenceStore._index_key(), f"{user_id}:{room}")
+        deleted = await r.delete(TrainingPreferenceStore._key(room=room))
+        await r.srem(TrainingPreferenceStore._index_key(), room)
         return bool(deleted)
 
     @staticmethod
-    async def mark_trained_now(*, user_id: int, room: str) -> Optional[dict]:
+    async def mark_trained_now(*, room: str) -> Optional[dict]:
         r = get_redis()
-        current = await TrainingPreferenceStore.get_training_preferences(user_id=user_id, room=room)
+        current = await TrainingPreferenceStore.get_training_preferences(room=room)
         if not current:
             return None
 
         current["last_trained_at"] = datetime.now(timezone.utc).isoformat()
-        await r.set(TrainingPreferenceStore._key(user_id=user_id, room=room), json.dumps(current))
+        await r.set(TrainingPreferenceStore._key(room=room), json.dumps(current))
         return current
 
     @staticmethod
     async def list_all_training_preferences() -> list[dict]:
         r = get_redis()
-        entries = await r.smembers(TrainingPreferenceStore._index_key())
+        rooms = await r.smembers(TrainingPreferenceStore._index_key())
         results: list[dict] = []
 
-        for entry in entries:
-            try:
-                user_id_str, room = entry.split(":", 1)
-                user_id = int(user_id_str)
-            except Exception:
-                continue
-
-            pref = await TrainingPreferenceStore.get_training_preferences(user_id=user_id, room=room)
+        for room in rooms:
+            pref = await TrainingPreferenceStore.get_training_preferences(room=room)
             if pref is None:
                 continue
 
             results.append(
                 {
-                    "user_id": user_id,
                     "room": room,
                     **pref,
                 }
