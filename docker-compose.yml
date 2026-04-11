@@ -55,8 +55,7 @@ services:
       INFLUX_BUCKET: smart_home
 
       AI_SERVICE_URL: http://ai_service:8002
-      HA_WS_URL: ${HA_WS_URL}
-      HA_TOKEN: ${HA_TOKEN}
+
 
     ports:
       - "8000:8000"
@@ -106,8 +105,6 @@ services:
       APP_URL: http://api:8000
       AI_SERVICE_URL: http://ai_service:8002
 
-      HA_WS_URL: ${HA_WS_URL}
-      HA_TOKEN: ${HA_TOKEN}
 
       AUTO_RETRAIN_ENABLED: "false"
       AUTO_RETRAIN_INTERVAL_HOURS: "12"

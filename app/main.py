@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.database import engine, Base
 from app.routes import notifications
 from app.routes import ai_notifications
+from app.routes import internal
 from app.routes import (
     auth,
     users,
@@ -57,6 +58,7 @@ app.include_router(userfaces.router)
 app.include_router(vision.router)
 app.include_router(hub.router)
 app.include_router(rooms.router)
+app.include_router(internal.router)
 app.include_router(ai_proxy.router)
 app.include_router(automation.router)
 app.include_router(demo_time.router)
