@@ -26,9 +26,6 @@ class VoiceAssistant:
 
     @staticmethod
     async def search_commands(query: str) -> dict | None:
-        """
-        Use the LLM to search for the best matching command.
-        """
         redis = await get_redis()
         controllable_devices = await redis.get("controllable_devices")
         if not controllable_devices:

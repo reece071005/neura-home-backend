@@ -5,14 +5,11 @@ ROOM_SYNONYMS = {
     "bedroom": [
         "bedroom",
     ],
-    # Treat "Reece" as an occupant hint (via OCCUPANT_WORDS), not as its own room.
-    # This prevents phrases like "Reece bath" from being normalized to "Reece bedroom".
     "reece bedroom": [
         "reece bedroom",
     ],
     "living room": [
         "living room",
-        # add more like "lounge", "family room" here
     ],
     "kitchen": [
         "kitchen",
@@ -77,7 +74,6 @@ STOPWORDS = {
     "to",
     "of",
     "please",
-    # Action verbs (even if intent detection misses them)
     "turn",
     "switch",
     "put",
@@ -86,7 +82,6 @@ STOPWORDS = {
     "close",
     "off",
     "set",
-    # Light color temperature units
     "kelvin",
     "kelvins",
 }
@@ -325,7 +320,7 @@ def extract_parameters(text: str, device: str | None, intent: str | None) -> dic
         if brightness_match:
             value = int(brightness_match.group(1))
             params["brightness"] = max(0, min(value, 100))
-        elif "brightness" in text_lower or "bright" in text_lower:
+        elif "brightness" in text_lower or "bright" in text_lower or "dim" in text_lower:
             # If "dim" mentioned without number, use default dim level
             if "dim" in text_lower:
                 params["brightness"] = 40
