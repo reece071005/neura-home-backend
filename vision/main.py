@@ -14,6 +14,41 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from config import load_home_assistant_config_from_db
 from surveillance import run_surveillance
 
+SURVEILLANCE_RETRY_INTERVAL_SECONDS = 10
+
+
+async def _surveillance_supervisor() -> None:
+    """
+    Keep trying to start surveillance when Home Assistant URL/token are missing.
+    Reloads config from the DB, then either starts the loop or waits and retries.
+    """
+    inner: asyncio.Task | None = None
+    try:
+        while True:
+            try:
+                await load_home_assistant_config_from_db()
+            except Exception:
+                pass
+            inner = await run_surveillance()
+            if inner is not None:
+                try:
+                    await inner
+                except asyncio.CancelledError:
+                    raise
+                inner = None
+                await asyncio.sleep(SURVEILLANCE_RETRY_INTERVAL_SECONDS)
+            else:
+                await asyncio.sleep(SURVEILLANCE_RETRY_INTERVAL_SECONDS)
+    except asyncio.CancelledError:
+        raise
+    finally:
+        if inner is not None and not inner.done():
+            inner.cancel()
+            try:
+                await inner
+            except asyncio.CancelledError:
+                pass
+
 
 async def _periodic_reload_home_assistant_config(interval_seconds: int = 30) -> None:
     """
@@ -54,27 +89,21 @@ async def lifespan(app: FastAPI):
     # Periodically refresh HA config in the background so credential/URL
     reload_task = asyncio.create_task(_periodic_reload_home_assistant_config())
 
-    surveillance_task = None
-    try:
-        surveillance_task = await run_surveillance()
-    except Exception:
-        pass
+    surveillance_task = asyncio.create_task(_surveillance_supervisor())
 
     yield
 
-   
     reload_task.cancel()
     try:
         await reload_task
     except asyncio.CancelledError:
         pass
 
-    if surveillance_task is not None:
-        surveillance_task.cancel()
-        try:
-            await surveillance_task
-        except asyncio.CancelledError:
-            pass
+    surveillance_task.cancel()
+    try:
+        await surveillance_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(

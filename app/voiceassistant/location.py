@@ -19,6 +19,7 @@ LOCATION_QUERY_PATTERNS = [
     r"\blocation\s+of\b",
     r"\bfind\s+(my\s+)?",
     r"\bwhere\s+did\s+.+\s+go\b",
+    r"\bwhere\s+.+\s+last\s+seen\b",
 ]
 
 # Map user query targets to detection message labels (for matching)

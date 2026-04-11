@@ -32,3 +32,4 @@ notify/
 test.py
 .DS_Store
 .env
+.pytest_cache/
