@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 import os
@@ -59,7 +59,7 @@ class InfluxLogger:
         point = point.time(ts, WritePrecision.NS)
 
         write_api = await get_influx_write_api()
-        await write_api.write(bucket=bucket, org=org, record=point)
+        write_api.write(bucket=bucket, org=org, record=point)
 
     @staticmethod
     async def log_user_action(
@@ -100,4 +100,4 @@ class InfluxLogger:
         point = point.time(ts, WritePrecision.NS)
 
         write_api = await get_influx_write_api()
-        await write_api.write(bucket=bucket, org=org, record=point)
+        write_api.write(bucket=bucket, org=org, record=point)
