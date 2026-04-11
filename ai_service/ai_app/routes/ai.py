@@ -50,13 +50,6 @@ class ClimatePreferencePayload(BaseModel):
     min_setpoint_c: float = Field(default=18.0, ge=10.0, le=35.0)
     max_setpoint_c: float = Field(default=28.0, ge=10.0, le=35.0)
 
-class TrainingPreferencePayload(BaseModel):
-    room: str
-    enabled: bool = True
-    frequency: Literal["manual", "daily", "weekly", "monthly"] = "manual"
-
-
-
     @field_validator("arrival_time_weekday", "arrival_time_weekend")
     @classmethod
     def validate_hhmm(cls, v: str) -> str:
@@ -77,6 +70,12 @@ class TrainingPreferencePayload(BaseModel):
         if v < min_value:
             raise ValueError("max_setpoint_c must be >= min_setpoint_c")
         return v
+
+
+class TrainingPreferencePayload(BaseModel):
+    room: str
+    enabled: bool = True
+    frequency: Literal[ "daily", "weekly", "monthly"] = "weekly"
 
 
 @router.get("/rooms")
