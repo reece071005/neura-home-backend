@@ -58,7 +58,7 @@ class InfluxLogger:
 
         point = point.time(ts, WritePrecision.NS)
 
-        write_api = await get_influx_write_api()
+        write_api = get_influx_write_api()
         write_api.write(bucket=bucket, org=org, record=point)
 
     @staticmethod
@@ -99,5 +99,5 @@ class InfluxLogger:
 
         point = point.time(ts, WritePrecision.NS)
 
-        write_api = await get_influx_write_api()
+        write_api = get_influx_write_api()
         write_api.write(bucket=bucket, org=org, record=point)
