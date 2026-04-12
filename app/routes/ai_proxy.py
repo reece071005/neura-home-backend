@@ -106,6 +106,16 @@ async def smart_suggestions(
         params={"room": room},
     )
 
+@router.get("/arrival-preview")
+async def arrival_preview(
+    room: str,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai(
+        "/ai/arrival-preview",
+        params={"room": room},
+    )
+
 @router.post("/room-ai/preferences")
 async def set_room_ai_preferences(
     payload: dict,

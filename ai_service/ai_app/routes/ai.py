@@ -150,6 +150,8 @@ async def arrival_preview(
         "precondition_config_used": result.get("precondition_config_used"),
     }
 
+
+
 @router.post("/room-ai/preferences")
 async def set_room_ai_preferences(payload: RoomAIPreferencePayload):
     saved = await RoomAIPreferenceStore.set_room_ai_enabled(
