@@ -23,11 +23,10 @@ class FriendInfluxDataset:
         start = _sync_now_minus_days(days)
 
         flux = f"""
-from(bucket: "{_get_bucket()}")
-  |> range(start: {start.isoformat()})
-  |> filter(fn: (r) => r._measurement == "device_state")
-  |> filter(fn: (r) => r.entity_id == "{room}")
-  |> keep(columns: ["_time","domain","entity_id","_field","_value"])
+    from(bucket: "{_get_bucket()}")
+        |> range(start: {start.isoformat()})
+        |> filter(fn: (r) => r._measurement == "device_state")
+        |> keep(columns: ["_time","domain","entity_id","_field","_value"])
         """.strip()
 
         query_api = get_influx_query_api()
@@ -44,6 +43,10 @@ from(bucket: "{_get_bucket()}")
         df = df.rename(columns={"_time": "time", "_value": "value", "_field": "field"})
         df["time"] = pd.to_datetime(df["time"], utc=True, errors="coerce")
         df = df.dropna(subset=["time"])
+
+        room_normalized = room.strip().lower().replace(" ", "_")
+
+        df = df[df["entity_id"].str.lower().str.contains(room_normalized)]
 
         keep = ["time", "domain", "entity_id", "field", "value"]
         for col in keep:
