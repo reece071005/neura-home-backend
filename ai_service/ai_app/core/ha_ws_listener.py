@@ -292,6 +292,8 @@ async def log_state_change_to_influx(entity_id: str, new_state: dict):
     state = new_state.get("state")
     attributes = new_state.get("attributes", {}) or {}
 
+    print(f"[WS] Logging state change: {entity_id} -> {new_state.get('state')}")
+
     await InfluxLogger.log_device_state(
         entity_id=entity_id,
         domain=domain,
@@ -397,14 +399,20 @@ async def start_ha_websocket_listener():
 
                     entity_id = event_data.get("entity_id")
                     new_state = event_data.get("new_state", {})
+                    old_state = event_data.get("old_state")
 
-                    if not entity_id or not new_state:
+                    if not entity_id:
+                        continue
+
+                    if new_state is None:
                         continue
 
                     allowed_entity_ids = await get_allowed_entity_ids()
 
                     if entity_id in allowed_entity_ids and _is_supported_domain(entity_id):
                         try:
+                            if old_state:
+                                await log_state_change_to_influx(entity_id, old_state)
                             await log_state_change_to_influx(entity_id, new_state)
                         except Exception as e:
                             print(f"[WS] Failed to log state change for {entity_id}: {e}")

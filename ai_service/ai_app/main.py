@@ -22,6 +22,16 @@ async def run_startup_snapshot_with_retry(max_attempts: int = 12, delay_seconds:
 
     print("[WS] Startup snapshot failed after all retries.")
 
+async def periodic_snapshot_loop(interval_seconds: int = 300):
+    while True:
+        await asyncio.sleep(interval_seconds)
+
+        try:
+            print("[WS] Running periodic snapshot...")
+            await run_startup_snapshot()
+            print("[WS] Periodic snapshot completed.")
+        except Exception as e:
+            print(f"[WS] Periodic snapshot failed: {e}")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,6 +42,7 @@ async def lifespan(app: FastAPI):
     ws_task = asyncio.create_task(start_ha_websocket_listener())
     auto_task = asyncio.create_task(automation_loop(60))
     retrain_task = asyncio.create_task(retrain_loop())
+    snapshot_task = asyncio.create_task(periodic_snapshot_loop(300))
 
     try:
         yield
@@ -40,7 +51,7 @@ async def lifespan(app: FastAPI):
         auto_task.cancel()
         retrain_task.cancel()
 
-        for task in [ws_task, auto_task, retrain_task]:
+        for task in [ws_task, auto_task, retrain_task, snapshot_task]:
             try:
                 await task
             except asyncio.CancelledError:
