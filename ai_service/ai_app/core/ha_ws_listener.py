@@ -26,7 +26,9 @@ async def fetch_home_assistant_config_from_backend() -> tuple[str, str]:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
             if resp.status != 200:
                 text = await resp.text()
-                raise RuntimeError(f"Failed to fetch HA config from backend: status={resp.status}, body={text}")
+                raise RuntimeError(
+                    f"Failed to fetch HA config from backend: status={resp.status}, body={text}"
+                )
 
             data = await resp.json()
 
@@ -80,6 +82,39 @@ async def get_allowed_entity_ids() -> set[str]:
         for entity_id in room.get("entity_ids", []) or []:
             allowed.add(str(entity_id))
     return allowed
+
+
+async def get_motion_sensor_room_mapping() -> dict[str, str]:
+    """
+    Build motion/presence sensor -> room name mapping dynamically from DB rooms.
+
+    Any room entity_id that:
+    - starts with binary_sensor.
+    - contains 'motion', 'occupancy', or 'presence'
+    is treated as a motion/presence trigger for that room.
+    """
+    try:
+        rooms = await fetch_all_rooms()
+    except Exception as e:
+        print(f"[WS] Failed to fetch rooms for motion mapping: {e}")
+        return {}
+
+    mapping: dict[str, str] = {}
+
+    for room in rooms:
+        room_name = str(room.get("name"))
+        entity_ids = room.get("entity_ids", []) or []
+
+        for entity_id in entity_ids:
+            entity_id = str(entity_id)
+            if not entity_id.startswith("binary_sensor."):
+                continue
+
+            lowered = entity_id.lower()
+            if any(keyword in lowered for keyword in ["motion", "occupancy", "presence"]):
+                mapping[entity_id] = room_name
+
+    return mapping
 
 
 def _is_supported_domain(entity_id: str) -> bool:
@@ -167,14 +202,11 @@ async def create_ai_notification(
 async def handle_motion_event(entity_id: str):
     print(f"[WS] Motion detected: {entity_id}")
 
-    room_mapping = {
-        "binary_sensor.kids_rooms_occupancy": "reece_room",
-        "binary_sensor.guest_room_occupancy": "guest_room",
-        "binary_sensor.master_bedroom_presence_sensor_presence": "Master Bedroom",
-    }
-
+    room_mapping = await get_motion_sensor_room_mapping()
     room = room_mapping.get(entity_id)
+
     if not room:
+        print(f"[WS] No room mapping found for motion sensor: {entity_id}")
         return
 
     async with aiohttp.ClientSession() as session:
@@ -377,7 +409,11 @@ async def start_ha_websocket_listener():
                         except Exception as e:
                             print(f"[WS] Failed to log state change for {entity_id}: {e}")
 
-                    if entity_id.startswith("binary_sensor") and new_state.get("state") == "on":
+                    if (
+                        entity_id in allowed_entity_ids
+                        and entity_id.startswith("binary_sensor")
+                        and new_state.get("state") == "on"
+                    ):
                         await handle_motion_event(entity_id)
 
         except Exception as e:
