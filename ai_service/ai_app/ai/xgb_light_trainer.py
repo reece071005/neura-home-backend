@@ -39,20 +39,38 @@ class XGBLightTrainer:
         # 1) Fetch long format from friend influx
         df_long = FriendInfluxDataset.fetch_room_state_df(room=room, days=days)
         if df_long.empty:
-            return {"trained": False, "room": room, "message": "No data returned from friend influx."}
+            return {
+                "trained": False,
+                "room": room,
+                "message": "No data returned from friend influx.",
+            }
 
         # 2) Filter domain=light
         df_long = df_long[df_long["domain"] == "light"].copy()
         if df_long.empty:
-            return {"trained": False, "room": room, "message": "No light data found for this room."}
+            return {
+                "trained": False,
+                "room": room,
+                "message": "No light data found for this room.",
+            }
 
         # 3) Pivot -> wide
         df_wide = TimeSeriesBuilder.pivot_events_to_wide(df_long)
         if df_wide.empty:
-            return {"trained": False, "room": room, "message": "Pivot failed (empty wide dataframe)."}
+            return {
+                "trained": False,
+                "room": room,
+                "message": "Pivot failed (empty wide dataframe).",
+            }
 
         # 4) Resample to 5min time grid
         df_ts = TimeSeriesBuilder.resample_room_domain(df_wide, cfg=cfg)
+        if df_ts.empty:
+            return {
+                "trained": False,
+                "room": room,
+                "message": "Resampling produced no usable rows.",
+            }
 
         # 5) Build ML dataset
         df_ml = TimeSeriesBuilder.build_light_classification_dataset(df_ts, cfg=cfg)
@@ -61,10 +79,16 @@ class XGBLightTrainer:
             return {
                 "trained": False,
                 "room": room,
-                "message": f"Not enough training rows after processing. Rows={len(df_ml)} min_required={cfg.min_rows}",
+                "message": (
+                    f"Not enough training rows after processing. "
+                    f"Rows={len(df_ml)} min_required={cfg.min_rows}"
+                ),
+                "rows_raw": int(len(df_long)),
+                "rows_ts": int(len(df_ts)),
+                "rows_ml": int(len(df_ml)),
             }
 
-        # 6) Split
+        # 6) Features / target
         feature_cols = [
             "hour",
             "weekday",
@@ -76,14 +100,103 @@ class XGBLightTrainer:
             "brightness_roll_mean_30m",
         ]
 
-        X = df_ml[feature_cols]
-        y = df_ml["y_on_future"]
+        X = df_ml[feature_cols].copy()
+        y = df_ml["y_on_future"].copy()
 
+        # Safety: ensure integer labels
+        y = pd.to_numeric(y, errors="coerce").dropna().astype(int)
+
+        # Align X with cleaned y index
+        X = X.loc[y.index]
+
+        if X.empty or y.empty:
+            return {
+                "trained": False,
+                "room": room,
+                "message": "No valid feature/target rows after cleaning.",
+                "rows_raw": int(len(df_long)),
+                "rows_ts": int(len(df_ts)),
+                "rows_ml": int(len(df_ml)),
+            }
+
+        # Guard 1: full dataset must contain at least 2 classes
+        full_label_counts = y.value_counts().sort_index().to_dict()
+        full_classes = sorted(y.unique().tolist())
+
+        if len(full_classes) < 2:
+            return {
+                "trained": False,
+                "room": room,
+                "message": (
+                    "Not enough target class variety for training. "
+                    "Need both OFF (0) and ON (1) future labels."
+                ),
+                "rows_raw": int(len(df_long)),
+                "rows_ts": int(len(df_ts)),
+                "rows_ml": int(len(df_ml)),
+                "label_counts_full": full_label_counts,
+                "classes_full": full_classes,
+            }
+
+        # Guard 2: need enough rows for a meaningful split
+        if len(X) < 5:
+            return {
+                "trained": False,
+                "room": room,
+                "message": (
+                    "Not enough processed rows for a train/test split. "
+                    "Collect more light on/off history first."
+                ),
+                "rows_raw": int(len(df_long)),
+                "rows_ts": int(len(df_ts)),
+                "rows_ml": int(len(df_ml)),
+                "label_counts_full": full_label_counts,
+                "classes_full": full_classes,
+            }
+
+        # 7) Split (time order preserved)
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.2, shuffle=False
         )
 
-        # 7) Train model
+        if len(X_train) == 0 or len(X_test) == 0:
+            return {
+                "trained": False,
+                "room": room,
+                "message": "Train/test split produced an empty train or test set.",
+                "rows_raw": int(len(df_long)),
+                "rows_ts": int(len(df_ts)),
+                "rows_ml": int(len(df_ml)),
+                "rows_train": int(len(X_train)),
+                "rows_test": int(len(X_test)),
+                "label_counts_full": full_label_counts,
+                "classes_full": full_classes,
+            }
+
+        # Guard 3: train split must also contain at least 2 classes
+        train_label_counts = y_train.value_counts().sort_index().to_dict()
+        train_classes = sorted(y_train.unique().tolist())
+
+        if len(train_classes) < 2:
+            return {
+                "trained": False,
+                "room": room,
+                "message": (
+                    "Training split has only one class after time-based split. "
+                    "Collect more light transitions or train later when more varied history exists."
+                ),
+                "rows_raw": int(len(df_long)),
+                "rows_ts": int(len(df_ts)),
+                "rows_ml": int(len(df_ml)),
+                "rows_train": int(len(X_train)),
+                "rows_test": int(len(X_test)),
+                "label_counts_full": full_label_counts,
+                "classes_full": full_classes,
+                "label_counts_train": train_label_counts,
+                "classes_train": train_classes,
+            }
+
+        # 8) Train model
         model = XGBClassifier(
             n_estimators=300,
             max_depth=6,
@@ -96,9 +209,16 @@ class XGBLightTrainer:
 
         model.fit(X_train, y_train)
 
-        # 8) Evaluate
+        # 9) Evaluate
         y_pred = model.predict(X_test)
-        report = classification_report(y_test, y_pred, output_dict=True)
+
+        # Safer report in small datasets
+        report = classification_report(
+            y_test,
+            y_pred,
+            output_dict=True,
+            zero_division=0,
+        )
 
         artifact = LightModelArtifact(
             room=room,
@@ -119,6 +239,12 @@ class XGBLightTrainer:
             "rows_raw": int(len(df_long)),
             "rows_ts": int(len(df_ts)),
             "rows_ml": int(len(df_ml)),
+            "rows_train": int(len(X_train)),
+            "rows_test": int(len(X_test)),
+            "label_counts_full": full_label_counts,
+            "classes_full": full_classes,
+            "label_counts_train": train_label_counts,
+            "classes_train": train_classes,
             "metrics": report,
             "artifact_path": XGBLightTrainer._artifact_path(room),
         }
