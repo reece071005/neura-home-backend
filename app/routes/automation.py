@@ -6,6 +6,7 @@ from app.core.homeassistant import (
     LightControl,
     ClimateControl,
     CoverControl,
+    FanControl
 )
 
 from app import schemas
@@ -74,6 +75,19 @@ async def run_automation(room: str):
                     position=int(position)
                 )
                 results.append({"type": "cover", "entity": entity_id, "result": result.success})
+
+            elif suggestion_type == "fan":
+                percentage = action.get("percentage")
+                result = await FanControl.control_fan(
+                    entity_id=entity_id,
+                    state="on",
+                    percentage=percentage,
+                )
+                results.append({
+                    "type": "fan",
+                    "entity": entity_id,
+                    "result": result.success
+                })
 
         return {
             "success": True,

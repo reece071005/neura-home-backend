@@ -6,20 +6,19 @@ def build_config_from_entities(entity_ids: Any) -> Dict[str, List[str]]:
         "lights": [],
         "climate": [],
         "covers": [],
+        "fans": [],
         "motion": [],
     }
 
     if entity_ids is None:
         return config
 
-    # If stored wrongly as a string: '["light.x", "climate.y"]'
     if isinstance(entity_ids, str):
         try:
             entity_ids = json.loads(entity_ids)
         except Exception:
             entity_ids = [entity_ids]
 
-    # If still not a list/tuple, coerce
     if not isinstance(entity_ids, (list, tuple)):
         entity_ids = [entity_ids]
 
@@ -35,6 +34,8 @@ def build_config_from_entities(entity_ids: Any) -> Dict[str, List[str]]:
             config["climate"].append(entity)
         elif domain == "cover":
             config["covers"].append(entity)
+        elif domain == "fan":
+            config["fans"].append(entity)
         elif domain == "binary_sensor":
             config["motion"].append(entity)
 

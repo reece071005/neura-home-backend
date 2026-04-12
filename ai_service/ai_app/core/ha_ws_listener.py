@@ -147,21 +147,30 @@ async def fetch_all_homeassistant_states() -> list[dict[str, Any]]:
 
 async def execute_command(entity_id: str, param):
     device_type = entity_id.split(".")[0]
-    param_map = {
-        "light": "state",
-        "climate": "temperature",
-        "cover": "position",
-    }
 
-    payload_key = param_map.get(device_type)
-    if payload_key is None:
+    if device_type == "light":
+        payload = {"entity_id": entity_id, "state": "on" if str(param).lower() == "on" else "off"}
+        endpoint = f"{APP_URL}/homecontrollers/light"
+
+    elif device_type == "climate":
+        payload = {"entity_id": entity_id, "temperature": param, "state": "on"}
+        endpoint = f"{APP_URL}/homecontrollers/climate"
+
+    elif device_type == "cover":
+        payload = {"entity_id": entity_id, "position": int(param)}
+        endpoint = f"{APP_URL}/homecontrollers/cover"
+
+    elif device_type == "fan":
+        payload = {"entity_id": entity_id, "state": "on"}
+        if param is not None:
+            payload["percentage"] = int(param)
+        endpoint = f"{APP_URL}/homecontrollers/fan"
+
+    else:
         return {"ok": False, "error": f"Unsupported domain: {device_type}"}
 
     async with aiohttp.ClientSession() as session:
-        async with session.post(
-            f"{APP_URL}/homecontrollers/{device_type}",
-            json={"entity_id": entity_id, payload_key: param},
-        ) as resp:
+        async with session.post(endpoint, json=payload) as resp:
             try:
                 return await resp.json()
             except Exception:
@@ -324,6 +333,23 @@ async def handle_motion_event(entity_id: str):
                             "suggestion": suggestion,
                         },
                     )
+        elif suggestion_type == "fan":
+            percentage = action.get("percentage")
+            result = await execute_command(entity, percentage)
+            if result and (result.get("success") is True or result.get("ok") is True):
+                await create_ai_notification(
+                    message=f"AI turned on {entity} at {percentage}% for {room}.",
+                    room=room,
+                    entity_id=entity,
+                    notification_type="executed",
+                    action_type="fan",
+                    meta={
+                        "trigger": "motion",
+                        "source_sensor": entity_id,
+                        "percentage": percentage,
+                        "suggestion": suggestion,
+                    },
+                )
 
 
 async def log_state_change_to_influx(entity_id: str, new_state: dict):

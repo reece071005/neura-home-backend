@@ -106,6 +106,7 @@ async def smart_suggestions(
         params={"room": room},
     )
 
+
 @router.get("/arrival-preview")
 async def arrival_preview(
     room: str,
@@ -115,6 +116,7 @@ async def arrival_preview(
         "/ai/arrival-preview",
         params={"room": room},
     )
+
 
 @router.post("/room-ai/preferences")
 async def set_room_ai_preferences(
@@ -145,6 +147,7 @@ async def delete_room_ai_preferences(
         method="DELETE",
         params={"room": room},
     )
+
 
 @router.post("/climate/preferences")
 async def set_climate_preferences(
@@ -184,20 +187,32 @@ async def climate_preconditioning_preview(
 ):
     return await call_ai(
         "/ai/climate/preconditioning-preview",
-        params={"room": room,},
+        params={"room": room},
     )
 
 
 @router.post("/train-room-xgb")
-async def train_room(
+async def train_room_light(
     room: str,
     days: int = 60,
+    horizon_minutes: int = 15,
     current_admin: models.User = Depends(auth.get_current_admin_user),
 ):
     return await call_ai(
         "/ai/train-room-xgb",
         method="POST",
-        params={"room": room, "days": days},
+        params={"room": room, "days": days, "horizon_minutes": horizon_minutes},
+    )
+
+
+@router.get("/predict-room-xgb")
+async def predict_room_light(
+    room: str,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai(
+        "/ai/predict-room-xgb",
+        params={"room": room},
     )
 
 
@@ -215,6 +230,17 @@ async def train_climate(
     )
 
 
+@router.get("/predict-climate-xgb")
+async def predict_climate(
+    room: str,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai(
+        "/ai/predict-climate-xgb",
+        params={"room": room},
+    )
+
+
 @router.post("/train-climate-temp-xgb")
 async def train_climate_temp(
     room: str,
@@ -229,17 +255,6 @@ async def train_climate_temp(
     )
 
 
-@router.get("/predict-climate-xgb")
-async def predict_climate(
-    room: str,
-    current_user: models.User = Depends(auth.get_current_active_user),
-):
-    return await call_ai(
-        "/ai/predict-climate-xgb",
-        params={"room": room},
-    )
-
-
 @router.get("/predict-climate-temp-xgb")
 async def predict_climate_temp(
     room: str,
@@ -249,6 +264,79 @@ async def predict_climate_temp(
         "/ai/predict-climate-temp-xgb",
         params={"room": room},
     )
+
+
+@router.post("/train-fan-xgb")
+async def train_fan(
+    room: str,
+    days: int = 60,
+    horizon_minutes: int = 15,
+    current_admin: models.User = Depends(auth.get_current_admin_user),
+):
+    return await call_ai(
+        "/ai/train-fan-xgb",
+        method="POST",
+        params={"room": room, "days": days, "horizon_minutes": horizon_minutes},
+    )
+
+
+@router.get("/predict-fan-xgb")
+async def predict_fan(
+    room: str,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai(
+        "/ai/predict-fan-xgb",
+        params={"room": room},
+    )
+
+
+@router.post("/train-cover-xgb")
+async def train_cover(
+    entity_id: str,
+    days: int = 60,
+    horizon_minutes: int = 15,
+    current_admin: models.User = Depends(auth.get_current_admin_user),
+):
+    return await call_ai(
+        "/ai/train-cover-xgb",
+        method="POST",
+        params={
+            "entity_id": entity_id,
+            "days": days,
+            "horizon_minutes": horizon_minutes,
+        },
+    )
+
+
+@router.get("/predict-cover-xgb")
+async def predict_cover(
+    entity_id: str,
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await call_ai(
+        "/ai/predict-cover-xgb",
+        params={"entity_id": entity_id},
+    )
+
+
+@router.post("/train-room-all-xgb")
+async def train_room_all_xgb(
+    room: str,
+    days: int = 60,
+    horizon_minutes: int = 15,
+    current_admin: models.User = Depends(auth.get_current_admin_user),
+):
+    return await call_ai(
+        "/ai/train-room-all-xgb",
+        method="POST",
+        params={
+            "room": room,
+            "days": days,
+            "horizon_minutes": horizon_minutes,
+        },
+    )
+
 
 @router.get("/training-readiness")
 async def training_readiness(

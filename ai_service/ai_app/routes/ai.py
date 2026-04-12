@@ -11,6 +11,7 @@ from ai_app.ai.xgb_light_trainer import XGBLightTrainer
 from ai_app.ai.predictor import Predictor
 from ai_app.ai.xgb_climate_trainer import XGBClimateTrainer
 from ai_app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
+from ai_app.ai.xgb_fan_trainer import XGBFanTrainer
 from ai_app.ai.xgb_cover_trainer import XGBCoverTrainer
 from ai_app.ai.room_config import ROOM_CONFIG
 from ai_app.ai.suggestion_store import SuggestionStore
@@ -20,9 +21,11 @@ from ai_app.ai.dataset import InfluxDataset, DatasetWindow
 from ai_app.services.room_client import fetch_all_rooms
 from ai_app.ai.room_ai_preference_store import RoomAIPreferenceStore
 from ai_app.ai.training_preference_store import TrainingPreferenceStore
+from ai_app.services.room_config_builder import build_config_from_entities
+
 router = APIRouter(prefix="/ai", tags=["AI"])
 
-SuggestionType = Literal["light", "climate", "cover"]
+SuggestionType = Literal["light", "climate", "cover", "fan"]
 FeedbackDecision = Literal["accepted", "declined", "dismissed"]
 
 
@@ -32,6 +35,7 @@ class SuggestionFeedback(BaseModel):
     entity_id: str
     decision: FeedbackDecision
     meta: Optional[Dict[str, Any]] = None
+
 
 class RoomAIPreferencePayload(BaseModel):
     room: str
@@ -75,7 +79,7 @@ class ClimatePreferencePayload(BaseModel):
 class TrainingPreferencePayload(BaseModel):
     room: str
     enabled: bool = True
-    frequency: Literal[ "daily", "weekly", "monthly"] = "weekly"
+    frequency: Literal["daily", "weekly", "monthly"] = "weekly"
 
 
 def _normalize_room_name(value: str) -> str:
@@ -133,6 +137,7 @@ async def smart_suggestions(
 ):
     return await Predictor.smart_room_suggestions(room=room)
 
+
 @router.get("/arrival-preview")
 async def arrival_preview(
     room: str = Query(...),
@@ -149,7 +154,6 @@ async def arrival_preview(
         "suggestions": result.get("suggestions", []),
         "precondition_config_used": result.get("precondition_config_used"),
     }
-
 
 
 @router.post("/room-ai/preferences")
@@ -230,6 +234,7 @@ async def delete_room_ai_preferences(
         "deleted": deleted,
     }
 
+
 @router.post("/climate/preferences")
 async def set_climate_preferences(payload: ClimatePreferencePayload):
     prefs = ClimatePreference(
@@ -255,6 +260,7 @@ async def set_climate_preferences(payload: ClimatePreferencePayload):
         "preferences": saved,
     }
 
+
 @router.get("/climate/preferences")
 async def get_climate_preferences(
     room: str = Query(...),
@@ -274,6 +280,7 @@ async def get_climate_preferences(
         "room": room,
         "preferences": saved,
     }
+
 
 @router.delete("/climate/preferences")
 async def delete_climate_preferences(
@@ -354,6 +361,128 @@ async def predict_room(room: str, hour: int, threshold: float = 0.25):
     }
 
 
+@router.post("/train-room-all-xgb")
+async def train_room_all_xgb(room: str, days: int = 60, horizon_minutes: int = 15):
+    cfg = BuildConfig(freq="5min", horizon_minutes=horizon_minutes)
+
+    results: dict[str, Any] = {
+        "light": None,
+        "climate_active": None,
+        "climate_temp": None,
+        "fan": None,
+        "covers": [],
+    }
+
+    # 1) Train light
+    try:
+        results["light"] = XGBLightTrainer.train_room_light(
+            room=room,
+            days=days,
+            cfg=cfg,
+        )
+    except Exception as e:
+        results["light"] = {
+            "trained": False,
+            "room": room,
+            "message": f"Light training failed: {e}",
+        }
+
+    # 2) Train climate active
+    try:
+        results["climate_active"] = XGBClimateTrainer.train_room_climate_active(
+            room=room,
+            days=days,
+            cfg=cfg,
+        )
+    except Exception as e:
+        results["climate_active"] = {
+            "trained": False,
+            "room": room,
+            "message": f"Climate active training failed: {e}",
+        }
+
+    # 3) Train climate setpoint
+    try:
+        results["climate_temp"] = XGBClimateTempTrainer.train_room_climate_setpoint(
+            room=room,
+            days=days,
+            cfg=cfg,
+        )
+    except Exception as e:
+        results["climate_temp"] = {
+            "trained": False,
+            "room": room,
+            "message": f"Climate setpoint training failed: {e}",
+        }
+
+    # 4) Train fan
+    try:
+        results["fan"] = XGBFanTrainer.train_room_fan(
+            room=room,
+            days=days,
+            cfg=cfg,
+        )
+    except Exception as e:
+        results["fan"] = {
+            "trained": False,
+            "room": room,
+            "message": f"Fan training failed: {e}",
+        }
+
+    # 5) Train covers for this room
+    try:
+        rooms = await fetch_all_rooms()
+        room_obj = _find_room_by_name(rooms, room)
+
+        if room_obj:
+            entity_ids = room_obj.get("entity_ids") or []
+            room_cfg = build_config_from_entities(entity_ids)
+            cover_entities = room_cfg.get("covers", []) or []
+
+            for cover_entity in cover_entities:
+                try:
+                    cover_result = XGBCoverTrainer.train_cover_position(
+                        entity_id=cover_entity,
+                        days=days,
+                        cfg=cfg,
+                    )
+                    results["covers"].append(cover_result)
+                except Exception as e:
+                    results["covers"].append(
+                        {
+                            "trained": False,
+                            "entity_id": cover_entity,
+                            "message": f"Cover training failed: {e}",
+                        }
+                    )
+    except Exception as e:
+        results["covers"].append(
+            {
+                "trained": False,
+                "room": room,
+                "message": f"Cover discovery failed: {e}",
+            }
+        )
+
+    overall_ok = any(
+        [
+            bool(results["light"] and results["light"].get("trained")),
+            bool(results["climate_active"] and results["climate_active"].get("trained")),
+            bool(results["climate_temp"] and results["climate_temp"].get("trained")),
+            bool(results["fan"] and results["fan"].get("trained")),
+            any(r.get("trained") for r in results["covers"] if isinstance(r, dict)),
+        ]
+    )
+
+    return {
+        "ok": overall_ok,
+        "room": room,
+        "days": days,
+        "horizon_minutes": horizon_minutes,
+        "results": results,
+    }
+
+
 @router.post("/train-room-xgb")
 async def train_room_xgb_light(room: str, days: int = 60, horizon_minutes: int = 15):
     cfg = BuildConfig(freq="5min", horizon_minutes=horizon_minutes)
@@ -400,6 +529,18 @@ async def train_cover_xgb(entity_id: str, days: int = 60, horizon_minutes: int =
 async def predict_cover_xgb(entity_id: str):
     cfg = BuildConfig(freq="5min", horizon_minutes=15)
     return await Predictor.predict_cover_position_next_15m(entity_id=entity_id, days_context=7, cfg=cfg)
+
+
+@router.post("/train-fan-xgb")
+async def train_room_xgb_fan(room: str, days: int = 60, horizon_minutes: int = 15):
+    cfg = BuildConfig(freq="5min", horizon_minutes=horizon_minutes)
+    return XGBFanTrainer.train_room_fan(room=room, days=days, cfg=cfg)
+
+
+@router.get("/predict-fan-xgb")
+async def predict_room_xgb_fan(room: str):
+    cfg = BuildConfig(freq="5min", horizon_minutes=15)
+    return await Predictor.predict_room_fan_next_15m(room=room, days_context=7, cfg=cfg)
 
 
 @router.get("/training-readiness")
@@ -495,6 +636,7 @@ async def training_readiness(room: str, min_days: int = 15, lookback_days: int =
             else "Not enough historical data yet."
         ),
     }
+
 
 @router.post("/training/preferences")
 async def set_training_preferences(payload: TrainingPreferencePayload):

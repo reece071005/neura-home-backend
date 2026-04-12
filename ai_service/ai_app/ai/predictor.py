@@ -11,6 +11,7 @@ from ai_app.ai.xgb_light_trainer import XGBLightTrainer
 from ai_app.ai.xgb_climate_trainer import XGBClimateTrainer
 from ai_app.ai.xgb_climate_temp_trainer import XGBClimateTempTrainer
 from ai_app.ai.xgb_cover_trainer import XGBCoverTrainer
+from ai_app.ai.xgb_fan_trainer import XGBFanTrainer
 from ai_app.ai.suggestion_store import SuggestionStore, CooldownConfig
 from ai_app.ai.user_preference_store import UserPreferenceStore
 from ai_app.services.room_client import fetch_all_rooms
@@ -197,6 +198,100 @@ class Predictor:
             "suggest_turn_on": bool(prob_on >= 0.65),
         }
 
+
+    @staticmethod
+    async def predict_room_fan_next_15m(
+        *,
+        room: str,
+        days_context: int = 7,
+        cfg: BuildConfig = BuildConfig(),
+    ) -> Dict[str, Any]:
+        artifact = XGBFanTrainer.load_artifact(room)
+        if not artifact:
+            return {
+                "ok": False,
+                "room": room,
+                "message": "Fan model not trained. Run /ai/train-fan-xgb first.",
+            }
+
+        df_long = FriendInfluxDataset.fetch_room_state_df(room=room, days=days_context)
+        if df_long.empty:
+            return {
+                "ok": False,
+                "room": room,
+                "message": "No recent room data for fan prediction.",
+            }
+
+        fan_df = df_long[df_long["domain"] == "fan"].copy()
+        if artifact.fan_entity_id:
+            fan_df = fan_df[fan_df["entity_id"] == artifact.fan_entity_id].copy()
+
+        if fan_df.empty:
+            return {
+                "ok": False,
+                "room": room,
+                "message": "No recent fan data for prediction.",
+            }
+
+        fan_wide = TimeSeriesBuilder.pivot_events_to_wide(fan_df)
+        fan_ts = TimeSeriesBuilder.resample_room_domain(fan_wide, cfg=cfg)
+
+        climate_ts = pd.DataFrame()
+        climate_df = df_long[df_long["domain"] == "climate"].copy()
+        if artifact.climate_entity_id:
+            climate_df = climate_df[climate_df["entity_id"] == artifact.climate_entity_id].copy()
+
+        if not climate_df.empty:
+            climate_wide = TimeSeriesBuilder.pivot_events_to_wide(climate_df)
+            if not climate_wide.empty:
+                climate_ts = TimeSeriesBuilder.resample_room_domain(climate_wide, cfg=cfg)
+
+        df_ml = TimeSeriesBuilder.build_fan_classification_dataset(
+            fan_ts=fan_ts,
+            climate_ts=climate_ts,
+            cfg=cfg,
+        )
+
+        if df_ml.empty:
+            return {
+                "ok": False,
+                "room": room,
+                "message": "Failed to build fan prediction features.",
+            }
+
+        last_row = df_ml.iloc[-1]
+        X = pd.DataFrame([last_row[artifact.feature_columns].to_dict()])
+        prob_on = float(artifact.model.predict_proba(X)[0][1])
+
+        suggested_percentage = None
+        try:
+            pct = float(last_row.get("fan_percentage_roll_mean_30m", 0.0))
+            suggested_percentage = int(max(0, min(100, round(pct))))
+        except Exception:
+            suggested_percentage = None
+
+        current_temp = None
+        try:
+            current_temp = float(last_row.get("current_temperature"))
+        except Exception:
+            current_temp = None
+
+        now = await _utc_now()
+
+        return {
+            "ok": True,
+            "room": room,
+            "domain": "fan",
+            "fan_entity_id": artifact.fan_entity_id,
+            "climate_entity_id": artifact.climate_entity_id,
+            "timestamp_utc": now.isoformat(),
+            "prediction_horizon_minutes": artifact.cfg.horizon_minutes,
+            "probability_fan_on": prob_on,
+            "suggest_turn_on": bool(prob_on >= 0.65),
+            "suggested_percentage": suggested_percentage,
+            "current_temperature": current_temp,
+        }
+
     @staticmethod
     async def predict_room_climate_active_next_15m(
         *,
@@ -362,10 +457,10 @@ class Predictor:
 
     @staticmethod
     async def smart_room_suggestions(
-        *,
-        room: str,
-        motion_required: bool = True,
-        cooldown_cfg: CooldownConfig = CooldownConfig(),
+            *,
+            room: str,
+            motion_required: bool = True,
+            cooldown_cfg: CooldownConfig = CooldownConfig(),
     ) -> Dict[str, Any]:
         config = await _get_room_config(room)
         if not config:
@@ -423,6 +518,9 @@ class Predictor:
 
         suggestions: List[Dict[str, Any]] = []
 
+        # -----------------------------
+        # LIGHT SUGGESTIONS
+        # -----------------------------
         if not (motion_required and motion_entities and not motion_detected):
             for entity in config.get("lights", []):
                 try:
@@ -465,6 +563,9 @@ class Predictor:
                 except Exception as e:
                     print(f"[AI] Light suggestion failed for {entity}: {e}")
 
+        # -----------------------------
+        # CLIMATE SUGGESTIONS
+        # -----------------------------
         pre_cfg = effective_pre_cfg or {}
         if bool(pre_cfg.get("enabled", False)):
             now_local = await _local_now_dubai()
@@ -521,9 +622,9 @@ class Predictor:
 
                             used_fallback = False
                             if not _is_valid_setpoint(
-                                desired,
-                                min_c=min_setpoint_c,
-                                max_c=max_setpoint_c,
+                                    desired,
+                                    min_c=min_setpoint_c,
+                                    max_c=max_setpoint_c,
                             ):
                                 desired = fallback_setpoint
                                 used_fallback = True
@@ -580,6 +681,71 @@ class Predictor:
                         except Exception as e:
                             print(f"[AI] Climate suggestion failed for {entity}: {e}")
 
+        # -----------------------------
+        # FAN SUGGESTIONS
+        # -----------------------------
+        if not (motion_required and motion_entities and not motion_detected):
+            for entity in config.get("fans", []):
+                try:
+                    result = await Predictor.predict_room_fan_next_15m(room=room)
+                    if not result.get("ok"):
+                        print(f"[AI] Fan prediction unavailable for {room}: {result.get('message')}")
+                        continue
+
+                    artifact_entity = result.get("fan_entity_id")
+                    if artifact_entity and artifact_entity != entity:
+                        continue
+
+                    prob = float(result.get("probability_fan_on") or 0.0)
+                    if prob < 0.65:
+                        continue
+
+                    in_cd = await SuggestionStore.is_in_cooldown(
+                        room=room,
+                        suggestion_type="fan",
+                        entity_id=entity,
+                    )
+                    if in_cd:
+                        continue
+
+                    await SuggestionStore.set_cooldown(
+                        room=room,
+                        suggestion_type="fan",
+                        entity_id=entity,
+                        cfg=cooldown_cfg,
+                    )
+
+                    suggested_percentage = result.get("suggested_percentage")
+                    current_temp = result.get("current_temperature")
+
+                    subtitle_parts = [f"Predicted fan usage soon ({prob:.2f})."]
+                    if current_temp is not None:
+                        subtitle_parts.append(f"Current room temperature: {float(current_temp):.1f}°C.")
+                    if suggested_percentage is not None:
+                        subtitle_parts.append(f"Suggested speed: {int(suggested_percentage)}%.")
+
+                    suggestions.append({
+                        "type": "fan",
+                        "entity_id": entity,
+                        "confidence": prob,
+                        "title": "Turn on fan?",
+                        "subtitle": " ".join(subtitle_parts),
+                        "current_temperature": current_temp,
+                        "suggested_percentage": suggested_percentage,
+                        "action": {
+                            "domain": "fan",
+                            "service": "turn_on",
+                            "entity_id": entity,
+                            "percentage": suggested_percentage,
+                        },
+                    })
+
+                except Exception as e:
+                    print(f"[AI] Fan suggestion failed for {entity}: {e}")
+
+        # -----------------------------
+        # COVER SUGGESTIONS
+        # -----------------------------
         if not (motion_required and motion_entities and not motion_detected):
             for entity in config.get("covers", []):
                 try:

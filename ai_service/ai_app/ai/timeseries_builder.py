@@ -337,5 +337,111 @@ class TimeSeriesBuilder:
         return out
 
 
+    @staticmethod
+    def build_fan_classification_dataset(
+        fan_ts: pd.DataFrame,
+        climate_ts: pd.DataFrame | None = None,
+        *,
+        cfg: BuildConfig = BuildConfig(),
+    ) -> pd.DataFrame:
+        if fan_ts.empty:
+            return pd.DataFrame()
+
+        fan_df = fan_ts.copy()
+        fan_df["time"] = pd.to_datetime(fan_df["time"], utc=True)
+        fan_df = fan_df.sort_values("time").reset_index(drop=True)
+
+        if "state" not in fan_df.columns:
+            fan_df["state"] = None
+        fan_df["fan_state_on"] = fan_df["state"].apply(_encode_on_off)
+
+        if "percentage" not in fan_df.columns:
+            fan_df["percentage"] = None
+        fan_df["fan_percentage"] = pd.to_numeric(fan_df["percentage"], errors="coerce").fillna(0.0)
+
+        # Merge climate context if available
+        if climate_ts is not None and not climate_ts.empty:
+            climate_df = climate_ts.copy()
+            climate_df["time"] = pd.to_datetime(climate_df["time"], utc=True)
+            climate_df = climate_df.sort_values("time").reset_index(drop=True)
+
+            keep_cols = ["time", "current_temperature", "temperature"]
+            for col in keep_cols:
+                if col not in climate_df.columns:
+                    climate_df[col] = None
+
+            climate_df["current_temperature"] = pd.to_numeric(
+                climate_df["current_temperature"], errors="coerce"
+            )
+            climate_df["temperature"] = pd.to_numeric(
+                climate_df["temperature"], errors="coerce"
+            )
+
+            df = pd.merge_asof(
+                fan_df.sort_values("time"),
+                climate_df[keep_cols].sort_values("time"),
+                on="time",
+                direction="backward",
+            )
+        else:
+            df = fan_df.copy()
+            df["current_temperature"] = None
+            df["temperature"] = None
+
+        df["current_temperature"] = pd.to_numeric(df["current_temperature"], errors="coerce").ffill()
+        df["temperature"] = pd.to_numeric(df["temperature"], errors="coerce").ffill()
+
+        df["current_temperature"] = df["current_temperature"].fillna(0.0)
+        df["temperature"] = df["temperature"].fillna(0.0)
+
+        df["temp_diff"] = df["temperature"] - df["current_temperature"]
+
+        df["hour"] = df["time"].dt.hour
+        df["weekday"] = df["time"].dt.weekday
+        df["is_weekend"] = (df["weekday"] >= 5).astype(int)
+
+        df["fan_state_on_lag1"] = df["fan_state_on"].shift(1)
+        df["fan_percentage_lag1"] = df["fan_percentage"].shift(1)
+        df["fan_percentage_roll_mean_30m"] = df["fan_percentage"].rolling(window=6, min_periods=1).mean()
+
+        df["temp_diff_lag1"] = df["temp_diff"].shift(1)
+        df["current_temp_roll_mean_30m"] = df["current_temperature"].rolling(window=6, min_periods=1).mean()
+
+        step_minutes = int(pd.Timedelta(cfg.freq).total_seconds() // 60)
+        horizon_steps = max(1, cfg.horizon_minutes // step_minutes)
+
+        df["y_fan_on_future"] = df["fan_state_on"].shift(-horizon_steps)
+
+        df = df.dropna(subset=["fan_state_on", "fan_state_on_lag1", "y_fan_on_future"])
+        df["y_fan_on_future"] = df["y_fan_on_future"].astype(int)
+
+        out = df[
+            [
+                "time",
+                "entity_id",
+                "domain",
+                "hour",
+                "weekday",
+                "is_weekend",
+                "fan_state_on",
+                "fan_state_on_lag1",
+                "fan_percentage",
+                "fan_percentage_lag1",
+                "fan_percentage_roll_mean_30m",
+                "current_temperature",
+                "temperature",
+                "temp_diff",
+                "temp_diff_lag1",
+                "current_temp_roll_mean_30m",
+                "y_fan_on_future",
+            ]
+        ].copy()
+
+        return out
+
+
+
+
+
 
 
