@@ -133,6 +133,23 @@ async def smart_suggestions(
 ):
     return await Predictor.smart_room_suggestions(room=room)
 
+@router.get("/arrival-preview")
+async def arrival_preview(
+    room: str = Query(...),
+):
+    result = await Predictor.smart_room_suggestions(
+        room=room,
+        motion_required=False,
+    )
+
+    return {
+        "ok": True,
+        "room": room,
+        "preview": True,
+        "suggestions": result.get("suggestions", []),
+        "precondition_config_used": result.get("precondition_config_used"),
+    }
+
 @router.post("/room-ai/preferences")
 async def set_room_ai_preferences(payload: RoomAIPreferencePayload):
     saved = await RoomAIPreferenceStore.set_room_ai_enabled(

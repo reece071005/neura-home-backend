@@ -222,6 +222,23 @@ async def handle_motion_event(entity_id: str):
 
     suggestions = ai_data.get("suggestions", [])
 
+    # for testing i will alwats log a notification for testing, even if there are no suggestions
+    if not suggestions:
+        await create_ai_notification(
+            message=f"No AI suggestions available right now for {room}.",
+            room=room,
+            entity_id=entity_id,
+            notification_type="suggested",
+            action_type="none",
+            meta={
+                "trigger": "motion",
+                "source_sensor": entity_id,
+                "suggestions_count": 0,
+                "ai_response": ai_data,
+            },
+        )
+        return
+
     # Log suggestions to DB even if nothing is executed yet
     for suggestion in suggestions:
         action = suggestion.get("action", {})
