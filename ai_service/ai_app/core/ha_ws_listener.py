@@ -222,6 +222,31 @@ async def handle_motion_event(entity_id: str):
 
     suggestions = ai_data.get("suggestions", [])
 
+    # Log suggestions to DB even if nothing is executed yet
+    for suggestion in suggestions:
+        action = suggestion.get("action", {})
+        suggested_entity = action.get("entity_id") or suggestion.get("entity_id")
+        suggestion_type = suggestion.get("type")
+
+        if not suggested_entity or not suggestion_type:
+            continue
+
+        try:
+            await create_ai_notification(
+                message=f"{suggestion.get('title', 'AI suggestion')} - {suggestion.get('subtitle', '')}".strip(" -"),
+                room=room,
+                entity_id=suggested_entity,
+                notification_type="suggested",
+                action_type=suggestion_type,
+                meta={
+                    "trigger": "motion",
+                    "source_sensor": entity_id,
+                    "suggestion": suggestion,
+                },
+            )
+        except Exception as e:
+            print(f"[WS] Failed to create suggested AI notification: {e}")
+
     for suggestion in suggestions:
         suggestion_type = suggestion.get("type")
         action = suggestion.get("action", {})
