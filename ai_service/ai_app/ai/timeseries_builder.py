@@ -11,7 +11,7 @@ import pandas as pd
 class BuildConfig:
     freq: str = "5min"          # resample frequency
     horizon_minutes: int = 15   # predict next 15 minutes
-    min_rows: int = 500         # minimum rows to train
+    min_rows: int = 1         # minimum rows to train
 
 
 def _encode_on_off(v: object) -> Optional[int]:
