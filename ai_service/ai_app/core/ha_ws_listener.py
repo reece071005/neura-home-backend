@@ -304,6 +304,7 @@ async def run_startup_snapshot():
         print(f"[WS] Startup snapshot written to Influx: {written} states")
     except Exception as e:
         print(f"[WS] Startup snapshot failed: {e}")
+        raise
 
 
 async def start_ha_websocket_listener():
