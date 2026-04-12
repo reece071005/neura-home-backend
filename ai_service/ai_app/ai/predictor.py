@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, time as dtime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import pandas as pd
 
@@ -23,6 +23,7 @@ from ai_app.core.demo_time import (
 )
 from ai_app.ai.room_ai_preference_store import RoomAIPreferenceStore
 
+
 DEFAULT_PRECONDITION = {
     "enabled": True,
     "arrival_time_weekday": "18:30",
@@ -36,22 +37,72 @@ DEFAULT_PRECONDITION = {
 }
 
 
+def _normalize_room_name(value: str) -> str:
+    return str(value).strip().lower()
+
+
+def _find_room_by_name(rooms: list[dict], room_name: str) -> dict | None:
+    requested = _normalize_room_name(room_name)
+
+    for room in rooms:
+        candidate = _normalize_room_name(room.get("name", ""))
+        if candidate == requested:
+            return room
+
+    return None
+
+
+def _extract_motion_like_entities(entity_ids: list[str]) -> list[str]:
+    result: list[str] = []
+
+    for entity_id in entity_ids:
+        entity_id = str(entity_id)
+        if not entity_id.startswith("binary_sensor."):
+            continue
+
+        lowered = entity_id.lower()
+        if any(keyword in lowered for keyword in ["motion", "occupancy", "presence"]):
+            result.append(entity_id)
+
+    return result
+
+
 async def _get_room_config(room_name: str) -> dict | None:
     try:
         rooms = await fetch_all_rooms()
-        for r in rooms:
-            if str(r.get("name")) == room_name:
-                entity_ids = r.get("entity_ids") or []
-                cfg = build_config_from_entities(entity_ids)
-                cfg["precondition"] = DEFAULT_PRECONDITION.copy()
-                return cfg
+        room_obj = _find_room_by_name(rooms, room_name)
+
+        if room_obj:
+            entity_ids = room_obj.get("entity_ids") or []
+            cfg = build_config_from_entities(entity_ids)
+
+            # Make sure presence sensors are also treated as motion-like triggers
+            motion_like_entities = _extract_motion_like_entities(entity_ids)
+            existing_motion = cfg.get("motion", []) or []
+            merged_motion = list(dict.fromkeys(existing_motion + motion_like_entities))
+            cfg["motion"] = merged_motion
+
+            cfg["precondition"] = DEFAULT_PRECONDITION.copy()
+            return cfg
+
     except Exception as e:
         print(f"[AI] Failed to fetch rooms from backend: {e}")
 
-    fallback = ROOM_CONFIG.get(room_name)
+    fallback = None
+    requested = _normalize_room_name(room_name)
+    for key, value in ROOM_CONFIG.items():
+        if _normalize_room_name(key) == requested:
+            fallback = value
+            break
+
     if fallback:
         fb = dict(fallback)
         fb["precondition"] = dict(fb.get("precondition") or DEFAULT_PRECONDITION)
+
+        # Also normalize fallback motion list if present
+        fb_motion = fb.get("motion", []) or []
+        fb["motion"] = list(dict.fromkeys(_extract_motion_like_entities(fb_motion) + fb_motion))
+
         return fb
 
     return None
@@ -82,8 +133,8 @@ async def _local_now_dubai() -> datetime:
     return await get_simulated_local_now_dubai()
 
 
-def _parse_hhmm(s: str) -> dtime:
-    return parse_hhmm_to_time(s)
+def _parse_hhmm(value: str) -> dtime:
+    return parse_hhmm_to_time(value)
 
 
 def _safe_float(value: Any) -> float | None:
@@ -111,7 +162,11 @@ class Predictor:
     ) -> Dict[str, Any]:
         artifact = XGBLightTrainer.load_artifact(room)
         if not artifact:
-            return {"ok": False, "room": room, "message": "Model not trained. Run /ai/train-room-xgb first."}
+            return {
+                "ok": False,
+                "room": room,
+                "message": "Model not trained. Run /ai/train-room-xgb first.",
+            }
 
         df_long = FriendInfluxDataset.fetch_room_state_df(room=room, days=days_context)
         df_long = df_long[df_long["domain"] == "light"].copy()
@@ -151,7 +206,11 @@ class Predictor:
     ) -> Dict[str, Any]:
         artifact = XGBClimateTrainer.load_artifact(room)
         if not artifact:
-            return {"ok": False, "room": room, "message": "Climate model not trained. Run /ai/train-climate-xgb first."}
+            return {
+                "ok": False,
+                "room": room,
+                "message": "Climate model not trained. Run /ai/train-climate-xgb first.",
+            }
 
         df_long = FriendInfluxDataset.fetch_room_state_df(room=room, days=days_context)
         df_long = df_long[df_long["domain"] == "climate"].copy()
@@ -163,9 +222,9 @@ class Predictor:
         df_ts = TimeSeriesBuilder.resample_room_domain(df_wide, cfg=cfg)
 
         keep_cols = ["time", "domain", "entity_id", "hvac_action_str", "current_temperature", "temperature"]
-        for c in keep_cols:
-            if c not in df_ts.columns:
-                df_ts[c] = None
+        for col in keep_cols:
+            if col not in df_ts.columns:
+                df_ts[col] = None
         df_ts = df_ts[keep_cols]
 
         df_ml = TimeSeriesBuilder.build_climate_classification_dataset(df_ts, cfg=cfg)
@@ -198,7 +257,11 @@ class Predictor:
     ) -> Dict[str, Any]:
         artifact = XGBClimateTempTrainer.load_artifact(room)
         if not artifact:
-            return {"ok": False, "room": room, "message": "Setpoint model not trained. Run /ai/train-climate-temp-xgb first."}
+            return {
+                "ok": False,
+                "room": room,
+                "message": "Setpoint model not trained. Run /ai/train-climate-temp-xgb first.",
+            }
 
         df_long = FriendInfluxDataset.fetch_room_state_df(room=room, days=days_context)
         df_long = df_long[df_long["domain"] == "climate"].copy()
@@ -210,9 +273,9 @@ class Predictor:
         df_ts = TimeSeriesBuilder.resample_room_domain(df_wide, cfg=cfg)
 
         keep_cols = ["time", "domain", "entity_id", "current_temperature", "temperature"]
-        for c in keep_cols:
-            if c not in df_ts.columns:
-                df_ts[c] = None
+        for col in keep_cols:
+            if col not in df_ts.columns:
+                df_ts[col] = None
         df_ts = df_ts[keep_cols]
 
         df_ml = TimeSeriesBuilder.build_climate_temperature_regression_dataset(df_ts, cfg=cfg)
@@ -243,7 +306,11 @@ class Predictor:
     ) -> Dict[str, Any]:
         artifact = XGBCoverTrainer.load_artifact(entity_id)
         if not artifact:
-            return {"ok": False, "entity_id": entity_id, "message": "Cover model not trained. Run /ai/train-cover-xgb first."}
+            return {
+                "ok": False,
+                "entity_id": entity_id,
+                "message": "Cover model not trained. Run /ai/train-cover-xgb first.",
+            }
 
         df_long = FriendInfluxDataset.fetch_room_state_df(room=entity_id, days=days_context)
         df_long = df_long[df_long["domain"] == "cover"].copy()
@@ -307,7 +374,10 @@ class Predictor:
         motion_entities = config.get("motion", []) or []
         has_motion_sensor = len(motion_entities) > 0
 
-        ai_enabled = has_motion_sensor  # default behavior: off if no motion sensor, on if there is one
+        # Default behavior:
+        # - if room has motion/presence/occupancy sensor -> AI on by default
+        # - otherwise -> AI off by default
+        ai_enabled = has_motion_sensor
 
         saved_pref = await RoomAIPreferenceStore.get_room_ai_enabled(room=room)
         if saved_pref is not None and "enabled" in saved_pref:
@@ -327,7 +397,6 @@ class Predictor:
 
         effective_pre_cfg = await _get_effective_precondition_config(room)
 
-        #motion_entities = config.get("motion", []) or []
         motion_detected = False
         motion_details: List[Dict[str, Any]] = []
 
@@ -337,9 +406,10 @@ class Predictor:
                     entity_id=motion_entity,
                     minutes=5,
                 )
+
                 motion_details.append({
                     "entity_id": motion_entity,
-                    "motion_recent_5m": detected
+                    "motion_recent_5m": detected,
                 })
 
                 if detected:
@@ -348,7 +418,7 @@ class Predictor:
             except Exception as e:
                 motion_details.append({
                     "entity_id": motion_entity,
-                    "error": str(e)
+                    "error": str(e),
                 })
 
         suggestions: List[Dict[str, Any]] = []
@@ -364,7 +434,11 @@ class Predictor:
                     if prob < 0.65:
                         continue
 
-                    in_cd = await SuggestionStore.is_in_cooldown(room=room, suggestion_type="light", entity_id=entity)
+                    in_cd = await SuggestionStore.is_in_cooldown(
+                        room=room,
+                        suggestion_type="light",
+                        entity_id=entity,
+                    )
                     if in_cd:
                         continue
 
@@ -385,7 +459,7 @@ class Predictor:
                             "domain": "light",
                             "service": "turn_on",
                             "entity_id": entity,
-                        }
+                        },
                     })
 
                 except Exception as e:
@@ -409,7 +483,10 @@ class Predictor:
 
             arrival_t = _parse_hhmm(arrival_str)
             arrival_dt = now_local.replace(
-                hour=arrival_t.hour, minute=arrival_t.minute, second=0, microsecond=0
+                hour=arrival_t.hour,
+                minute=arrival_t.minute,
+                second=0,
+                microsecond=0,
             )
 
             if arrival_dt > now_local:
@@ -420,14 +497,19 @@ class Predictor:
                     for entity in config.get("climate", []):
                         try:
                             in_cd = await SuggestionStore.is_in_cooldown(
-                                room=room, suggestion_type="climate", entity_id=entity
+                                room=room,
+                                suggestion_type="climate",
+                                entity_id=entity,
                             )
                             if in_cd:
                                 continue
 
                             active_result = await Predictor.predict_room_climate_active_next_15m(room=entity)
                             if not active_result.get("ok"):
-                                print(f"[AI] Climate active prediction unavailable for {entity}: {active_result.get('message')}")
+                                print(
+                                    f"[AI] Climate active prediction unavailable for {entity}: "
+                                    f"{active_result.get('message')}"
+                                )
                                 continue
 
                             prob_active = float(active_result.get("probability_climate_active") or 0.0)
@@ -438,7 +520,11 @@ class Predictor:
                             desired = _safe_float(setpoint_result.get("predicted_setpoint_celsius"))
 
                             used_fallback = False
-                            if not _is_valid_setpoint(desired, min_c=min_setpoint_c, max_c=max_setpoint_c):
+                            if not _is_valid_setpoint(
+                                desired,
+                                min_c=min_setpoint_c,
+                                max_c=max_setpoint_c,
+                            ):
                                 desired = fallback_setpoint
                                 used_fallback = True
 
@@ -488,7 +574,7 @@ class Predictor:
                                     "service": "set_temperature",
                                     "entity_id": entity,
                                     "temperature": float(desired),
-                                }
+                                },
                             })
 
                         except Exception as e:
@@ -501,7 +587,11 @@ class Predictor:
                     if not result.get("suggest_change"):
                         continue
 
-                    in_cd = await SuggestionStore.is_in_cooldown(room=room, suggestion_type="cover", entity_id=entity)
+                    in_cd = await SuggestionStore.is_in_cooldown(
+                        room=room,
+                        suggestion_type="cover",
+                        entity_id=entity,
+                    )
                     if in_cd:
                         continue
 
@@ -525,7 +615,7 @@ class Predictor:
                             "service": "set_cover_position",
                             "entity_id": entity,
                             "position": predicted_pos,
-                        }
+                        },
                     })
 
                 except Exception as e:
@@ -534,6 +624,8 @@ class Predictor:
         return {
             "ok": True,
             "room": room,
+            "ai_enabled": ai_enabled,
+            "has_motion_sensor": has_motion_sensor,
             "motion_detected": motion_detected,
             "motion": motion_details,
             "precondition_config_used": effective_pre_cfg,

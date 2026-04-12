@@ -78,6 +78,21 @@ class TrainingPreferencePayload(BaseModel):
     frequency: Literal[ "daily", "weekly", "monthly"] = "weekly"
 
 
+def _normalize_room_name(value: str) -> str:
+    return value.strip().lower()
+
+
+def _find_room_by_name(rooms: list[dict], room: str) -> dict | None:
+    requested_room = _normalize_room_name(room)
+
+    for r in rooms:
+        room_name = _normalize_room_name(str(r.get("name", "")))
+        if room_name == requested_room:
+            return r
+
+    return None
+
+
 @router.get("/rooms")
 async def list_rooms():
     rooms = []
@@ -143,9 +158,11 @@ async def get_room_ai_preferences(
     except Exception:
         rooms = []
 
-    room_obj = None
+    room_obj = _find_room_by_name(rooms, room)
+    requested_room = room.strip().lower()
     for r in rooms:
-        if str(r.get("name")) == room:
+        room_name = str(r.get("name", "")).strip().lower()
+        if room_name == requested_room:
             room_obj = r
             break
 
@@ -153,7 +170,10 @@ async def get_room_ai_preferences(
     if room_obj:
         entity_ids = room_obj.get("entity_ids") or []
         has_motion_sensor = any(
-            str(e).startswith("binary_sensor.") and ("occupancy" in str(e) or "motion" in str(e))
+            str(e).startswith("binary_sensor.") and any(
+                keyword in str(e).lower()
+                for keyword in ["occupancy", "motion", "presence"]
+            )
             for e in entity_ids
         )
 
@@ -375,9 +395,11 @@ async def training_readiness(room: str, min_days: int = 15, lookback_days: int =
             "message": f"Failed to fetch rooms: {e}",
         }
 
-    room_obj = None
+    room_obj = _find_room_by_name(rooms, room)
+    requested_room = room.strip().lower()
     for r in rooms:
-        if str(r.get("name")) == room:
+        room_name = str(r.get("name", "")).strip().lower()
+        if room_name == requested_room:
             room_obj = r
             break
 

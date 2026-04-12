@@ -119,8 +119,12 @@ from(bucket: "{bucket}")
         if df.empty:
             return df
 
+        for col in ["entity_id", "domain", "area", "source"]:
+            if col not in df.columns:
+                df[col] = None
+
         wide = df.pivot_table(
-            index=["_time", "entity_id", "domain", "area", "source"],
+            index=["_time", "entity_id", "domain", "source"],
             columns="_field",
             values="_value",
             aggfunc="last"
