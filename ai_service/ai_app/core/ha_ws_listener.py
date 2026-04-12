@@ -91,8 +91,16 @@ def _is_supported_domain(entity_id: str) -> bool:
 
 async def fetch_all_homeassistant_states() -> list[dict[str, Any]]:
     base_url, token = await get_home_assistant_config()
-    url = f"{base_url}/api/states"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    if base_url.endswith("/api"):
+        url = f"{base_url}/states"
+    else:
+        url = f"{base_url}/api/states"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
 
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
