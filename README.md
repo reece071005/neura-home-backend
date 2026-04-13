@@ -130,6 +130,7 @@ You will also need access to:
 # Clone the repository
 git clone https://github.com/reece071005/neura-home-backend.git
 cd neura-home-backend
+```
 
 
 ### Running the Backend
@@ -158,7 +159,7 @@ The AI service will be available at:
 The vision service will be available at:  
 **http://localhost:8001**
 
----
+
 
 ### Home Assistant Configuration
 
@@ -171,7 +172,7 @@ At minimum, the system requires:
 
 Once configured, the backend can discover connected devices and expose them through Neura Home APIs.
 
----
+
 
 ### Environment Notes
 
@@ -194,13 +195,13 @@ If running outside Docker, you may need to adjust:
 - Redis URLs  
 - Service URLs  
 
----
+
 
 ## Usage
 
 Once running, the backend acts as the **central hub** of the Neura Home system.
 
----
+
 
 ### Authentication and User Management
 
@@ -221,7 +222,7 @@ The backend supports:
   - Use AI features  
   - Manage settings  
 
----
+
 
 ### Device Control
 
@@ -239,7 +240,7 @@ Endpoints allow:
 - Listing **all devices**
 - Sending **control commands**
 
----
+
 
 ### Room Configuration
 
@@ -252,7 +253,7 @@ They are used to:
 - Generate suggestions  
 - Run automations  
 
----
+
 
 ### AI Suggestions and Automation
 
@@ -268,7 +269,7 @@ Modes:
 - **Preview mode** → suggestions only  
 - **Execution mode** → actions performed  
 
----
+
 
 ### Arrival Preview
 
@@ -278,7 +279,7 @@ Users can request:
 
 This returns AI suggestions **without executing them**.
 
----
+
 
 ### AI Preferences and Training
 
@@ -290,7 +291,7 @@ Supports:
 - Data validation  
 - Climate preferences  
 
----
+
 
 ### Climate Preconditioning
 
@@ -304,7 +305,7 @@ Users can configure:
 
 These guide AI decisions.
 
----
+
 
 ### Voice Assistant
 
@@ -317,7 +318,7 @@ Supports:
 - **Queries (residents, deliveries)**
 - **LLM fallback**
 
----
+
 
 ### Vision and Detection Notifications
 
@@ -330,7 +331,7 @@ Vision service detects:
 
 Stored and exposed via backend.
 
----
+
 
 ### AI Notifications
 
