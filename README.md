@@ -130,7 +130,7 @@ You will also need access to:
 # Clone the repository
 git clone https://github.com/reece071005/neura-home-backend.git
 cd neura-home-backend
-```
+
 
 Running the Backend
 
@@ -347,4 +347,3 @@ Notification storage and retrieval
 Vision service integration
 Voice assistant orchestration
 Local system coordination across microservices
-
