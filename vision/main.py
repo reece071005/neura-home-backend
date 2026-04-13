@@ -14,6 +14,57 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from config import load_home_assistant_config_from_db
 from surveillance import run_surveillance
 
+SURVEILLANCE_RETRY_INTERVAL_SECONDS = 10
+
+
+async def _surveillance_supervisor() -> None:
+    """
+    Keep trying to start surveillance when Home Assistant URL/token are missing.
+    Reloads config from the DB, then either starts the loop or waits and retries.
+    """
+    inner: asyncio.Task | None = None
+    try:
+        while True:
+            try:
+                await load_home_assistant_config_from_db()
+            except Exception:
+                pass
+            inner = await run_surveillance()
+            if inner is not None:
+                try:
+                    await inner
+                except asyncio.CancelledError:
+                    raise
+                inner = None
+                await asyncio.sleep(SURVEILLANCE_RETRY_INTERVAL_SECONDS)
+            else:
+                await asyncio.sleep(SURVEILLANCE_RETRY_INTERVAL_SECONDS)
+    except asyncio.CancelledError:
+        raise
+    finally:
+        if inner is not None and not inner.done():
+            inner.cancel()
+            try:
+                await inner
+            except asyncio.CancelledError:
+                pass
+
+
+async def _periodic_reload_home_assistant_config(interval_seconds: int = 30) -> None:
+    """
+    Periodically reload Home Assistant URL/token from the database.
+
+    Keeps the long-running vision service in sync with changes made by the API
+    without any direct dependency between the two services.
+    """
+    while True:
+        try:
+            await load_home_assistant_config_from_db()
+        except Exception:
+            # On failure we just try again on the next interval.
+            pass
+        await asyncio.sleep(interval_seconds)
+
 
 def _decode_upload(content: bytes) -> np.ndarray:
     nparr = np.frombuffer(content, np.uint8)
@@ -31,26 +82,28 @@ def _encode_image_bgr_to_base64_jpeg(image: np.ndarray) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start surveillance if cameras are configured; cancel on shutdown."""
-    # Load Home Assistant configuration (URL + token) from DB for the vision service
-    try:
-        await load_home_assistant_config_from_db()
-    except Exception:
-        # If config loading fails, we still start; surveillance will no-op if URL/headers missing.
-        pass
-    surveillance_task = None
-    try:
-        surveillance_task = await run_surveillance()
-    except Exception:
-        pass
+    # Initial load of Home Assistant configuration (URL + token) from DB
+
+    await load_home_assistant_config_from_db()
+
+    # Periodically refresh HA config in the background so credential/URL
+    reload_task = asyncio.create_task(_periodic_reload_home_assistant_config())
+
+    surveillance_task = asyncio.create_task(_surveillance_supervisor())
 
     yield
 
-    if surveillance_task is not None:
-        surveillance_task.cancel()
-        try:
-            await surveillance_task
-        except asyncio.CancelledError:
-            pass
+    reload_task.cancel()
+    try:
+        await reload_task
+    except asyncio.CancelledError:
+        pass
+
+    surveillance_task.cancel()
+    try:
+        await surveillance_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(

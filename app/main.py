@@ -3,7 +3,23 @@ from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.database import engine, Base
-from app.routes import auth, users, homecontrollers, voice, userfaces, vision, hub, rooms
+from app.routes import notifications
+from app.routes import ai_notifications
+from app.routes import internal
+from app.routes import (
+    auth,
+    users,
+    homecontrollers,
+    voice,
+    userfaces,
+    vision,
+    hub,
+    rooms,
+    automation,
+    demo_time,
+)
+from app.routes import ai_proxy
+
 from app.core.redis_init import init_redis, close_redis
 from app.core.cache_management import CacheManagement
 from app.config import load_home_assistant_config_from_db
@@ -22,7 +38,9 @@ async def lifespan(app: FastAPI):
     # Initialize Redis client (single instance for the whole app)
     await init_redis()
     await CacheManagement.update_cache()
+
     yield
+
     await close_redis()
 
 
@@ -40,6 +58,13 @@ app.include_router(userfaces.router)
 app.include_router(vision.router)
 app.include_router(hub.router)
 app.include_router(rooms.router)
+app.include_router(internal.router)
+app.include_router(ai_proxy.router)
+app.include_router(automation.router)
+app.include_router(demo_time.router)
+
+app.include_router(notifications.router)
+app.include_router(ai_notifications.router)
 
 @app.get("/")
 async def read_root():

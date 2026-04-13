@@ -208,3 +208,22 @@ async def delete_room(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")
     await db.delete(room)
     await db.commit()
+
+
+@router.get("/internal/all")
+async def list_all_rooms_internal(
+    db: AsyncSession = Depends(get_db),
+):
+   
+    result = await db.execute(select(models.Room))
+    rooms = result.scalars().all()
+
+    return [
+        {
+            "id": r.id,
+            "user_id": r.user_id,
+            "name": r.name,
+            "entity_ids": r.entity_ids,
+        }
+        for r in rooms
+    ]

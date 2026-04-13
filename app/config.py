@@ -74,7 +74,7 @@ async def load_home_assistant_config_from_db() -> None:
 
 
 # Redis and other global config
-REDIS_URL = "redis://redis:6379/0"
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 LLM_KEY = "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"
 
 # Vision notify folder (shared with vision container; mount vision_notify to this path)

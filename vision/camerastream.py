@@ -14,9 +14,11 @@ KID_HEIGHT_RATIO = 0.45
 FACE_RECOGNITION_THRESHOLD = 0.6  # Cosine similarity threshold (0-1, higher = stricter)
 
 try:
-    from config import RESIDENTS_DIR  # shared project-root folder (set via VISION_RESIDENTS_DIR in container)
+    # Preferred: import from the vision package when running as part of the service
+    from vision.config import RESIDENTS_DIR  # shared project-root folder (set via VISION_RESIDENTS_DIR in container)
 except ImportError:
-    RESIDENTS_DIR = "residents"  # fallback when run as script
+    # Fallback when running this file directly as a script
+    RESIDENTS_DIR = "residents"
 
 # -----------------------------
 # LOAD MODELS (once)

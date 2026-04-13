@@ -4,6 +4,7 @@ API for vision service to create detection notifications and get all notificatio
 import base64
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -30,6 +31,8 @@ class DetectionNotificationResponse(BaseModel):
     camera_entity: str
     image: str | None = None  # base64-encoded JPEG
     created_at: datetime
+    is_read: bool
+    read_at: datetime | None = None
 
 
 def _image_path_to_base64(image_path: str | None) -> str | None:
@@ -52,6 +55,7 @@ def _image_path_to_base64(image_path: str | None) -> str | None:
 async def get_all_notifications(
     skip: int = 0,
     limit: int = 50,
+    status: Literal["all", "read", "unread"] = "all",
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
@@ -61,12 +65,14 @@ async def get_all_notifications(
     - skip: number of items to skip (for pagination)
     - limit: maximum number of items to return
     """
-    stmt = (
-        select(DetectionNotification)
-        .order_by(DetectionNotification.created_at.desc())
-        .offset(skip)
-        .limit(limit)
+    stmt = select(DetectionNotification).order_by(
+        DetectionNotification.created_at.desc()
     )
+    if status == "unread":
+        stmt = stmt.where(DetectionNotification.is_read.is_(False))
+    elif status == "read":
+        stmt = stmt.where(DetectionNotification.is_read.is_(True))
+    stmt = stmt.offset(skip).limit(limit)
     result = await db.execute(stmt)
     notifications = result.scalars().all()
     return [
@@ -76,6 +82,8 @@ async def get_all_notifications(
             camera_entity=n.camera_entity,
             image=_image_path_to_base64(n.image_path),
             created_at=n.created_at,
+            is_read=n.is_read,
+            read_at=n.read_at,
         )
         for n in notifications
     ]
@@ -89,18 +97,31 @@ async def get_notification_by_id(
     db: AsyncSession = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
-    result = await db.execute(select(DetectionNotification).where(DetectionNotification.id == notification_id))
+    result = await db.execute(
+        select(DetectionNotification).where(
+            DetectionNotification.id == notification_id
+        )
+    )
     notification = result.scalar_one_or_none()
     if notification is None:
         raise HTTPException(status_code=404, detail="Notification not found")
 
-    print(notification.image_path)
+    # Mark notification as read when it is fetched by ID
+    if not notification.is_read:
+        notification.is_read = True
+        notification.read_at = datetime.utcnow()
+        db.add(notification)
+        await db.commit()
+        await db.refresh(notification)
+
     return DetectionNotificationResponse(
         id=notification.id,
         message=notification.message,
         camera_entity=notification.camera_entity,
         image=_image_path_to_base64(notification.image_path),
         created_at=notification.created_at,
+        is_read=notification.is_read,
+        read_at=notification.read_at,
     )
 
 @router.post(
@@ -116,6 +137,8 @@ async def create_detection_notification(
         message=body.message,
         camera_entity=body.camera_entity,
         image_path=body.image_path,
+        is_read=False,
+        read_at=None,
     )
     db.add(entry)
     await db.commit()

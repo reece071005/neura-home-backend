@@ -53,6 +53,22 @@ class DetectionNotification(Base):
     camera_entity = Column(String, nullable=False, index=True)
     image_path = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_read = Column(Boolean, nullable=False, default=False)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+
+class AINotification(Base):
+    __tablename__ = "ai_notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message = Column(String, nullable=False)
+    room = Column(String, nullable=True, index=True)
+    entity_id = Column(String, nullable=True, index=True)
+    notification_type = Column(String, nullable=False, default="executed")  # suggested / executed
+    action_type = Column(String, nullable=True)  # light / climate / cover
+    meta = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
+    read_at = Column(DateTime(timezone=True), nullable=True)
 
 class Configuration(Base):
     __tablename__ = "configurations"
@@ -84,3 +100,20 @@ class Room(Base):
     def username(self) -> str | None:
         """Username of the user who owns this room (when user is loaded)."""
         return self.user.username if self.user else None
+
+
+class PushNotificationToken(Base):
+    __tablename__ = "push_notification_tokens"
+    __table_args__ = (
+        UniqueConstraint("user_id", "device_id", name="uq_push_token_user_device"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    expo_push_token = Column(String, nullable=False, unique=True, index=True)
+    device_id = Column(String, nullable=True, index=True)
+    platform = Column(String, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    last_seen_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

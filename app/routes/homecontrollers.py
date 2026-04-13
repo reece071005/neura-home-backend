@@ -71,6 +71,13 @@ async def get_current_state(
 ):
     return await DeviceControl.get_current_state()
 
+@router.get('/current-state-device')
+async def get_current_state_device(
+    entity_id: str = Query(..., description="Device entity ID (e.g., 'light.livingroom')"),
+    current_user: models.User = Depends(auth.get_current_active_user),
+):
+    return await DeviceControl.get_current_state_device(entity_id)
+
 @router.get('/camera-snapshot')
 async def get_camera_snapshot(
     camera_entity: str = Query(..., description="Camera entity ID (e.g., 'camera.frontdoor')"),

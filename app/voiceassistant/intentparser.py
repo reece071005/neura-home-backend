@@ -5,14 +5,11 @@ ROOM_SYNONYMS = {
     "bedroom": [
         "bedroom",
     ],
-    # Treat "Reece" as an occupant hint (via OCCUPANT_WORDS), not as its own room.
-    # This prevents phrases like "Reece bath" from being normalized to "Reece bedroom".
     "reece bedroom": [
         "reece bedroom",
     ],
     "living room": [
         "living room",
-        # add more like "lounge", "family room" here
     ],
     "kitchen": [
         "kitchen",
@@ -77,7 +74,6 @@ STOPWORDS = {
     "to",
     "of",
     "please",
-    # Action verbs (even if intent detection misses them)
     "turn",
     "switch",
     "put",
@@ -86,7 +82,63 @@ STOPWORDS = {
     "close",
     "off",
     "set",
+    "kelvin",
+    "kelvins",
 }
+
+LIGHT_COLOR_NAME_SYNONYMS: dict[str, list[str]] = {
+    # Keep these lower-case; matching is done on lower-cased text.
+    # Canonical values are passed through as `color_name`.
+    "red": ["red"],
+    "blue": ["blue"],
+    "green": ["green"],
+    "yellow": ["yellow"],
+    "orange": ["orange"],
+    "purple": ["purple", "violet"],
+    "pink": ["pink"],
+    "white": ["white"],
+    "black": ["black"],
+    "gray": ["gray", "grey"],
+    "brown": ["brown"],
+    "cyan": ["cyan"],
+    "magenta": ["magenta"],
+    "teal": ["teal"],
+    "aqua": ["aqua"],
+    "lime": ["lime"],
+    # Common “near-basic” names people say often
+    "turquoise": ["turquoise", "turqoise"],
+    "gold": ["gold", "golden"],
+    "amber": ["amber"],
+}
+
+
+def _extract_light_color_name(text_lower: str) -> tuple[str | None, set[str]]:
+    """
+    Best-effort extraction of a spoken color name for lights.
+
+    Returns (color_name, matched_tokens_to_ignore_for_location).
+    """
+    # Normalize punctuation to spaces so boundary matching behaves.
+    t = re.sub(r"[^a-z0-9\s]+", " ", text_lower.lower())
+    t = re.sub(r"\s+", " ", t).strip()
+    if not t:
+        return None, set()
+
+    # Prefer longer (multi-word) phrases if we add any later.
+    phrase_candidates: list[tuple[str, str]] = []
+    for canonical, syns in LIGHT_COLOR_NAME_SYNONYMS.items():
+        for s in syns:
+            phrase_candidates.append((canonical, s))
+    phrase_candidates.sort(key=lambda x: len(x[1]), reverse=True)
+
+    for canonical, phrase in phrase_candidates:
+        # Word-boundary match for single words; works fine for multi-word too.
+        if re.search(rf"\b{re.escape(phrase)}\b", t):
+            matched_tokens = {normalize_token(tok) for tok in phrase.split() if tok.strip()}
+            return canonical, {tok for tok in matched_tokens if tok}
+
+    return None, set()
+
 
 def tokenize_location(entity_id: str, user_has_reece: bool = False) -> list[str]:
     """
@@ -224,6 +276,11 @@ def extract_location_tokens(text: str, device: str | None, intent: str | None) -
                 device_words.add(dev)
                 break
 
+    # If user said a light color (e.g. "red"), don't let it pollute entity matching.
+    light_color_tokens: set[str] = set()
+    if device == "light":
+        _, light_color_tokens = _extract_light_color_name(text_lower)
+
     cleaned: list[str] = []
     for tok in tokens:
         base = normalize_token(tok)
@@ -232,6 +289,8 @@ def extract_location_tokens(text: str, device: str | None, intent: str | None) -
         if base in intent_words:
             continue
         if base in device_words:
+            continue
+        if base in light_color_tokens:
             continue
         if base in STOPWORDS:
             continue
@@ -261,10 +320,27 @@ def extract_parameters(text: str, device: str | None, intent: str | None) -> dic
         if brightness_match:
             value = int(brightness_match.group(1))
             params["brightness"] = max(0, min(value, 100))
-        elif "brightness" in text_lower or "bright" in text_lower:
+        elif "brightness" in text_lower or "bright" in text_lower or "dim" in text_lower:
             # If "dim" mentioned without number, use default dim level
             if "dim" in text_lower:
                 params["brightness"] = 40
+
+        color_name, _ = _extract_light_color_name(text_lower)
+        if color_name:
+            params["color_name"] = color_name
+
+        # Color temperature (Kelvin): "3000 kelvin", "3000K", "set to 3000 k"
+        kelvin_match = re.search(r"\b(\d{3,5})\s*(kelvins?|k)\b", text_lower)
+        if not kelvin_match:
+            # Also allow "color temperature 3000" / "light temperature 3000" without unit
+            kelvin_match = re.search(r"\b(?:color temperature|light temperature|temp)\s*(\d{3,5})\b", text_lower)
+        if kelvin_match:
+            value = int(kelvin_match.group(1))
+            # Reasonable safety bounds for spoken light temperature
+            value = max(1000, min(value, 20000))
+            params["color_temp_kelvin"] = value
+            # Enforce exclusivity: kelvin overrides a generic color name if both are mentioned.
+            params.pop("color_name", None)
     
     # --- Fan: percentage and mode ---
     if device == "fan":
@@ -529,8 +605,15 @@ def _build_response_text(intent: str | None, domain: str | None, entity_id: str 
 
     # Lights
     if domain == "light":
-        if intent in {"turn_on", "on", "set_brightness", "set", None, ""}:
+        if intent in {"turn_on", "on", None, ""} and len(parameters.keys()) == 0:
             base = "Turning on the light"
+        elif intent in {"turn_on", "on", "set_temperature", "set_color_temp", "set", "set_color"} and parameters.get("color_temp_kelvin") is not None:
+            base = "Setting color temperature of the light to " + str(parameters.get("color_temp_kelvin")) + " Kelvin"
+        elif intent in {"turn_on", "on", "set_color", "set_color_name", "set"} and parameters.get("color_name") is not None:
+            base = "Setting color of the light to " + parameters.get("color_name")
+        elif intent in {"turn_on", "on", "set_brightness", "set_brightness_pct"} and parameters.get("brightness") is not None:
+            base = "Setting brightness of the lights to " + str(parameters.get("brightness"))+'%'
+        
         elif intent in {"turn_off", "off"}:
             base = "Turning off the light"
 

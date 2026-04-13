@@ -1,0 +1,7 @@
+services:
+  ai_service:
+    environment:
+      FRIEND_INFLUX_URL: http://192.168.1.211:8086
+      FRIEND_INFLUX_TOKEN: FN5ufIRxLOcwKiPYrw18y23TuRdradzq3s_qt1rDlqGxgY6Q3nv07RiaQftfAZC36Tja23bkxiu9YzgTfK8wAQ==
+      FRIEND_INFLUX_ORG: Home
+      FRIEND_INFLUX_BUCKET: HomeAssistant2
