@@ -132,216 +132,224 @@ git clone https://github.com/reece071005/neura-home-backend.git
 cd neura-home-backend
 
 
-Running the Backend
+### Running the Backend
 
-The easiest way to start the backend stack is with Docker Compose.
+The easiest way to start the backend stack is with **Docker Compose**:
 
+```bash
 docker compose up --build
+```
 
 This starts the following services:
 
-api – main FastAPI backend
-ai_service – AI microservice for room-based predictions and model training
-vision – computer vision service
-db – PostgreSQL database
-redis – Redis cache and preference store
-influxdb – InfluxDB time-series database
+- **api** – main FastAPI backend  
+- **ai_service** – AI microservice for room-based predictions and model training  
+- **vision** – computer vision service  
+- **db** – PostgreSQL database  
+- **redis** – Redis cache and preference store  
+- **influxdb** – InfluxDB time-series database  
 
-The backend will be available on:
+The backend will be available at:  
+**http://localhost:8000**
 
-http://localhost:8000
+The AI service will be available at:  
+**http://localhost:8002**
 
-The AI service will be available on:
+The vision service will be available at:  
+**http://localhost:8001**
 
-http://localhost:8002
+---
 
-The vision service will be available on:
+### Home Assistant Configuration
 
-http://localhost:8001
-Home Assistant Configuration
+The backend requires access to a **Home Assistant instance** in order to control devices and read their state.
 
-The backend requires access to a Home Assistant instance in order to control devices and read their state.
+At minimum, the system requires:
 
-Home Assistant connection details can be provided through configuration and are stored through the backend. At minimum, the system requires:
-
-The Home Assistant base URL
-A valid Home Assistant Long-Lived Access Token
+- **Home Assistant base URL**
+- **Home Assistant Long-Lived Access Token**
 
 Once configured, the backend can discover connected devices and expose them through Neura Home APIs.
 
-Environment Notes
+---
 
-The default Docker Compose setup includes local containers for PostgreSQL, Redis, and InfluxDB.
-For development, the backend and services communicate over the Docker network using service names such as:
+### Environment Notes
 
-db
-redis
-influxdb
-ai_service
+The default Docker Compose setup includes:
 
-If running parts of the stack outside Docker, configuration values such as database URLs, Redis URLs, and service URLs may need to be adjusted accordingly.
+- **PostgreSQL**
+- **Redis**
+- **InfluxDB**
 
-Usage
+For development, services communicate using:
 
-Once the backend stack is running and connected to Home Assistant, it serves as the central coordination layer for the Neura Home system.
+- `db`
+- `redis`
+- `influxdb`
+- `ai_service`
 
-Authentication and User Management
+If running outside Docker, you may need to adjust:
 
-The backend supports registration, login, JWT-based authentication, and role-based access control.
+- Database URLs  
+- Redis URLs  
+- Service URLs  
 
-The first registered user is automatically assigned the administrator role
-Administrators can create additional users, update user roles, and manage system access
-Standard users can interact with devices, AI features, and personalised settings
-Device Control
+---
 
-The backend exposes endpoints for controlling smart home devices through Home Assistant.
+## Usage
 
-Supported device types include:
+Once running, the backend acts as the **central hub** of the Neura Home system.
 
-Lights
-Climate systems
-Covers / blinds
-Fans
-Cameras
-Other Home Assistant compatible entities
+---
 
-The backend also provides endpoints to fetch the current device state and list all available devices.
+### Authentication and User Management
 
-Room Configuration
+The backend supports:
 
-Rooms are user-defined and stored in the backend database.
+- **Registration**
+- **Login**
+- **JWT authentication**
+- **Role-based access control**
 
-Each room contains a set of associated device entity IDs. These room definitions are used by the AI services to:
+- The **first user** becomes **admin**
+- Admins can:
+  - Create users  
+  - Update roles  
+  - Manage access  
+- Users can:
+  - Control devices  
+  - Use AI features  
+  - Manage settings  
 
-Group devices logically
-Determine which devices belong to a room
-Train predictive models on room-specific data
-Generate per-room suggestions and automations
-AI Suggestions and Automation
+---
 
-The backend proxies room-based AI suggestions from the AI microservice.
+### Device Control
 
-These suggestions are generated using trained models and may include:
+Supports Home Assistant devices:
 
-Turning on lights in a room
-Preconditioning room climate before arrival
-Adjusting blinds
-Suggesting or executing fan activation
-Previewing what the system would do if the user arrived now
+- **Lights**
+- **Climate systems**
+- **Covers / blinds**
+- **Fans**
+- **Cameras**
 
-The system supports both suggestion-only behaviour and executed automation flows depending on configuration.
+Endpoints allow:
 
-Arrival Preview
+- Fetching **current state**
+- Listing **all devices**
+- Sending **control commands**
 
-The backend supports an arrival preview feature that allows a user to request:
+---
 
-“If I walked into this room now, what would Neura Home suggest?”
+### Room Configuration
 
-This feature returns AI-generated suggestions without requiring motion detection or automatically executing the actions.
+Rooms are stored in the backend and contain device entity IDs.
 
-AI Preferences and Training
+They are used to:
 
-The backend provides endpoints for:
+- Group devices  
+- Train AI models  
+- Generate suggestions  
+- Run automations  
 
-Enabling or disabling AI automation per room
-Configuring room training preferences
-Manually training room models
-Checking whether sufficient historical data exists for training
-Viewing climate preconditioning preferences
+---
 
-Users can configure training schedules per room and optionally retrain models as new behavioural data is collected.
+### AI Suggestions and Automation
 
-Climate Preconditioning
+The backend fetches AI suggestions such as:
 
-The backend supports AI-assisted climate preconditioning for rooms with compatible climate devices and historical data.
+- Turning on lights  
+- Adjusting climate  
+- Controlling covers  
+- Activating fans  
+
+Modes:
+
+- **Preview mode** → suggestions only  
+- **Execution mode** → actions performed  
+
+---
+
+### Arrival Preview
+
+Users can request:
+
+> **“What would happen if I walked in now?”**
+
+This returns AI suggestions **without executing them**.
+
+---
+
+### AI Preferences and Training
+
+Supports:
+
+- Enable/disable AI per room  
+- Training configuration  
+- Manual training  
+- Data validation  
+- Climate preferences  
+
+---
+
+### Climate Preconditioning
 
 Users can configure:
 
-Weekday and weekend arrival time
-Lead time before arrival
-Minimum temperature delta required for action
-Minimum and maximum allowed setpoint
-Fallback target temperature
-Confidence threshold for AI-triggered climate activity
+- **Arrival time**
+- **Lead time**
+- **Temperature limits**
+- **Fallback temperature**
+- **Confidence threshold**
 
-These preferences guide whether and when climate suggestions should be made.
+These guide AI decisions.
 
-Voice Assistant
+---
 
-The backend includes APIs for a voice assistant that supports:
+### Voice Assistant
 
-Natural language device commands
-Speech-to-text audio uploads
-Text-to-speech output
-Resident location queries
-Delivery status queries
-General fallback LLM responses
+Supports:
 
-This allows the mobile app to provide contextual voice interaction with the smart home.
+- **Natural language commands**
+- **Speech-to-text (STT)**
+- **Text-to-speech (TTS)**
+- **Device control**
+- **Queries (residents, deliveries)**
+- **LLM fallback**
 
-Vision and Detection Notifications
+---
 
-The vision service continuously monitors configured camera entities and stores detection notifications in the backend database.
+### Vision and Detection Notifications
 
-Supported notifications may include:
+Vision service detects:
 
-Recognised residents
-Unknown individuals
-Delivery detections
-Activity in monitored areas
+- **Residents**
+- **Strangers**
+- **Deliveries**
+- **Motion/activity**
 
-The backend exposes these notifications to the frontend for display and user interaction.
+Stored and exposed via backend.
 
-AI Notifications
+---
 
-The backend stores AI notifications separately from vision detections.
+### AI Notifications
 
-These notifications may represent:
+Stored notifications include:
 
-Suggested AI actions
-Executed automations
-Climate preconditioning actions
-Fan or light actions triggered by AI logic
-Previewed automation outcomes for testing or transparency
+- Suggested actions  
+- Executed automations  
+- Climate events  
+- Fan/light predictions  
+- Preview outputs  
 
-Notifications include contextual information such as room, entity, action type, metadata, timestamps, and read state.
+Each includes:
 
-Backend Tech Stack
-
-This repository contains the backend hub, AI services, and system orchestration for Neura Home.
-
-The mobile frontend application is maintained in a separate repository.
-
-Frontend Repository: https://github.com/reece071005/neura-home
-Core Backend
-FastAPI – High-performance Python web framework for backend APIs
-SQLAlchemy – ORM for PostgreSQL data access
-PostgreSQL – Persistent relational database for users, rooms, dashboards, and notifications
-Redis – Cache and lightweight state/preference storage
-InfluxDB – Time-series database for smart home device history and AI training data
-AI and Machine Learning
-XGBoost – Predictive models for room-based light, climate, fan, and cover behaviour
-Pandas – Data manipulation and time-series feature engineering
-Joblib – Model artifact persistence
-Scikit-learn – Training utilities and evaluation metrics
-Vision Service
-OpenCV – Image handling and preprocessing
-Ultralytics YOLO – Object detection
-InsightFace – Face recognition and resident identification
-Voice and Language
-Vosk – Offline speech-to-text for voice command recognition
-Edge TTS – Text-to-speech output
-Groq / OpenAI-compatible API – Large language model fallback for natural language responses
-Infrastructure and Deployment
-Docker – Containerisation of backend services
-Docker Compose – Local orchestration of the Neura Home stack
-Backend Responsibilities
-
-The backend hub is responsible for:
-
-User authentication and authorisation
-Home Assistant integration and device control
-Room management
+- **Room**
+- **Device**
+- **Action type**
+- **Timestamp**
+- **Metadata**
+- **Read/unread status**
 AI configuration and training control
 Notification storage and retrieval
 Vision service integration
