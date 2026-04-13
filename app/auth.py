@@ -31,7 +31,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     try:
         return pwd_context.verify(plain_password, hashed_password)
     except ValueError:
-        # Treat invalid/too-long inputs as authentication failure
+##invalid inputs will lead to authentication failure
         return False
 
 

@@ -79,9 +79,7 @@ class InfluxClient:
             cls._sync_client = None
 
 
-# ============================================
-# BACKWARD COMPATIBILITY FUNCTIONS
-# ============================================
+##backward compatibility functions
 
 def init_influx():
     return InfluxClient.init_influx()

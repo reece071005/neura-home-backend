@@ -210,10 +210,8 @@ async def add_userface(
     target_username = target_user.username
     target_user_id = target_user.id
 
-    # If no custom face_name is provided, use username as the name, but file is always tied to that username/user
     actual_face_name = face_name if face_name else target_username
 
-    # Always only one file per user, named after username
     filename = f"{actual_face_name}{ext}"
     disk_path = _RESIDENTS_DIR / filename
     rel_path = f"residents/{filename}"
@@ -223,7 +221,6 @@ async def add_userface(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty upload")
     disk_path.write_bytes(data)
 
-    # Check if userface for this user_id already exists; if so, update instead of create new
     result_face = await db.execute(
         select(models.Userface).where(models.Userface.user_id == target_user_id)
     )
@@ -239,7 +236,6 @@ async def add_userface(
                 except OSError:
                     pass
 
-        # Update the record with new name/image_path
         existing_face.name = actual_face_name
         existing_face.image_path = rel_path
         db_userface = existing_face

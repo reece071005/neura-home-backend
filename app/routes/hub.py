@@ -64,10 +64,9 @@ async def _validate_home_assistant_url(url: str) -> str:
             detail="URL cannot be empty",
         )
     # If the URL already points at the API (e.g. ends with /api or /api/),
-    # use it directly (ensuring it does not end with a slash). Otherwise, append /api (without trailing slash).
     check_url = base
     if base.endswith("/api/"):
-        check_url = base[:-1]  # Remove trailing slash
+        check_url = base[:-1]  # remove trailing slash
     elif base.endswith("/api"):
         check_url = base
     else:

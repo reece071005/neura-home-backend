@@ -25,7 +25,7 @@ async def create_user_as_admin(
     current_admin: models.User = Depends(auth.get_current_admin_user),
 ):
     """Admin-only endpoint to create new users with explicit roles."""
-    # Check if user already exists (by email)
+    # Check if user already exists via email
     result_email = await db.execute(
         select(models.User).where(models.User.email == user.email)
     )
@@ -36,7 +36,7 @@ async def create_user_as_admin(
             detail="Email already registered",
         )
 
-    # Check if username is taken
+    # check if username is taken
     result_username = await db.execute(
         select(models.User).where(models.User.username == user.username)
     )
@@ -103,21 +103,21 @@ async def change_own_password(
     current_user: models.User = Depends(auth.get_current_active_user),
 ):
     """Allow the currently authenticated user to change their own password."""
-    # Ensure the new password and confirmation match
+    # this ensures tjat the new password and confirmation match
     if payload.new_password != payload.confirm_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New password and confirmation do not match",
         )
 
-    # Verify the old password is correct
+    # verify the old password is correct
     if not auth.verify_password(payload.old_password, current_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Old password is incorrect",
         )
 
-    # Update the user's password
+    # update the users password
     current_user.hashed_password = auth.get_password_hash(payload.new_password)
     await db.commit()
     await db.refresh(current_user)
@@ -163,12 +163,12 @@ async def delete_user_as_admin(
             detail="Cannot delete admin users",
         )
 
-    # Delete related user state rows first to satisfy FK constraints
+    # delete related user state rows first to satisfy FK constraints
     await db.execute(
         delete(models.UserState).where(models.UserState.user_id == user_id)
     )
 
-    # Delete related userface image (if any) from disk
+    # delete related userface image (if any) from disk
     username = db_user.username
     project_root = Path(__file__).resolve().parents[2]
     residents_dir = project_root / "residents"

@@ -9,9 +9,9 @@ import pandas as pd
 
 @dataclass(frozen=True)
 class BuildConfig:
-    freq: str = "5min"          # resample frequency
+    freq: str = "5min"          # resampling thr  frequency
     horizon_minutes: int = 15   # predict next 15 minutes
-    min_rows: int = 30         # minimum rows to train
+    min_rows: int = 30         # minimum rows needed to train to train. no one set this tp <20
 
 
 def _encode_on_off(v: object) -> Optional[int]:
@@ -78,7 +78,7 @@ class TimeSeriesBuilder:
         df["current_temperature"] = df["current_temperature"].ffill()
         df["temperature"] = df["temperature"].ffill()
 
-        # If still NaN, fill with 0 (not ideal but prevents crashes)
+        # If still NaN, fill with 0 prevents the crashes
         df["current_temperature"] = df["current_temperature"].fillna(0.0)
         df["temperature"] = df["temperature"].fillna(0.0)
 
@@ -140,7 +140,7 @@ class TimeSeriesBuilder:
 
         df = df_long.copy()
 
-        # normalize column names
+        # normalization of column names
         if "field" not in df.columns:
             df = df.rename(columns={"_field": "field"})
         if "value" not in df.columns:
@@ -180,10 +180,10 @@ class TimeSeriesBuilder:
 
         df = df.set_index("time").sort_index()
 
-        # Resample
+        # resample
         df = df.resample(cfg.freq).last()
 
-        # Forward fill ALL useful columns
+        # forward fill all useful columns
         for col in df.columns:
             df[col] = df[col].ffill()
 
@@ -219,25 +219,23 @@ class TimeSeriesBuilder:
             df["brightness"] = None
         df["brightness"] = pd.to_numeric(df["brightness"], errors="coerce").fillna(0.0)
 
-        # Time features
+        # time features
         df["hour"] = df["time"].dt.hour
         df["weekday"] = df["time"].dt.weekday
         df["is_weekend"] = (df["weekday"] >= 5).astype(int)
 
-        # Lag features (previous timestep)
+
         df["state_on_lag1"] = df["state_on"].shift(1)
         df["brightness_lag1"] = df["brightness"].shift(1)
 
-        # Rolling brightness mean (30 minutes = 6 steps at 5min)
         df["brightness_roll_mean_30m"] = df["brightness"].rolling(window=6, min_periods=1).mean()
 
-        # Target: ON in horizon
         step_minutes = int(pd.Timedelta(cfg.freq).total_seconds() // 60)
         horizon_steps = max(1, cfg.horizon_minutes // step_minutes)
 
         df["y_on_future"] = df["state_on"].shift(-horizon_steps)
 
-        # Clean rows
+        # cleaning th  rows
         df = df.dropna(subset=["state_on", "state_on_lag1", "y_on_future"])
         df["y_on_future"] = df["y_on_future"].astype(int)
 
@@ -278,7 +276,7 @@ class TimeSeriesBuilder:
         df["time"] = pd.to_datetime(df["time"], utc=True)
         df = df.sort_values("time").reset_index(drop=True)
 
-        # Ensure numeric
+        # mamking sure numeric
         for col in ["current_temperature", "temperature"]:
             if col not in df.columns:
                 df[col] = None
@@ -287,27 +285,23 @@ class TimeSeriesBuilder:
         df["current_temperature"] = df["current_temperature"].ffill()
         df["temperature"] = df["temperature"].ffill()
 
-        # Drop if still missing
+        # drop if still missing
         df = df.dropna(subset=["current_temperature", "temperature"])
         if df.empty:
             return pd.DataFrame()
 
         df["temp_diff"] = df["temperature"] - df["current_temperature"]
 
-        # Time features
         df["hour"] = df["time"].dt.hour
         df["weekday"] = df["time"].dt.weekday
         df["is_weekend"] = (df["weekday"] >= 5).astype(int)
 
-        # Lag features
         df["setpoint_lag1"] = df["temperature"].shift(1)
         df["current_temp_lag1"] = df["current_temperature"].shift(1)
         df["temp_diff_lag1"] = df["temp_diff"].shift(1)
 
-        # Rolling mean temperature (30 min)
         df["current_temp_roll_mean_30m"] = df["current_temperature"].rolling(window=6, min_periods=1).mean()
 
-        # Target
         step_minutes = int(pd.Timedelta(cfg.freq).total_seconds() // 60)
         horizon_steps = max(1, cfg.horizon_minutes // step_minutes)
 

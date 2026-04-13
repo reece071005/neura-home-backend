@@ -11,7 +11,7 @@ from insightface.app import FaceAnalysis
 # -----------------------------
 KID_AGE_THRESHOLD = 14
 KID_HEIGHT_RATIO = 0.45
-FACE_RECOGNITION_THRESHOLD = 0.6  # Cosine similarity threshold (0-1, higher = stricter)
+FACE_RECOGNITION_THRESHOLD = 0.6  # higher = stricter
 
 try:
     # Preferred: import from the vision package when running as part of the service
@@ -30,9 +30,7 @@ print("Loading Face Analysis...")
 face_app = FaceAnalysis(providers=["CPUExecutionProvider"])
 face_app.prepare(ctx_id=0, det_size=(640, 640))
 
-# -----------------------------
-# LOAD RESIDENT DATABASE
-# -----------------------------
+##loading the residents databse
 resident_embeddings = {}  # {name: embedding}
 
 
@@ -63,15 +61,15 @@ def load_residents(residents_dir: str) -> dict:
         pass
     image_extensions = {'.jpg', '.jpeg', '.png', '.bmp'}
 
-    # Count what we see on disk (regardless of whether faces are detected).
+    # count what we see on disk (regardless of whether faces are detected).
     total_files = 0
     supported_files = 0
     unreadable_files = 0
     no_face_files = 0
     loaded_files = 0
 
-    # Scan recursively so residents can be organized into subfolders.
-    # (e.g., residents/john/1.jpg, residents/jane/profile.png)
+    # scan recursively so residents can be organized into subfolders.
+    # (e.g., residents/john/1.jpg, residents/person/profile.png)
     try:
         all_paths = list(residents_path.rglob("*"))
         total_files = sum(1 for p in all_paths if p.is_file())
@@ -92,24 +90,23 @@ def load_residents(residents_dir: str) -> dict:
 
         if img_file.suffix.lower() in image_extensions:
             supported_files += 1
-            # Extract name from filename (without extension)
+            # extract the  name from filename (without extension)
             resident_name = img_file.stem
             
-            # Load and process image
+            # load and process image
             img = cv2.imread(str(img_file))
             if img is None:
                 print(f"Warning: Could not load {img_file}")
                 unreadable_files += 1
                 continue
             
-            # Extract face embedding
+            # extract face embedding
             faces = face_app.get(img)
             if not faces:
                 print(f"Warning: No face detected in {img_file}")
                 no_face_files += 1
                 continue
             
-            # Use the first (largest) face found
             embedding = faces[0].normed_embedding
             embeddings[resident_name] = embedding
             loaded_files += 1

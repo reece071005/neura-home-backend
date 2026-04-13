@@ -65,7 +65,7 @@ async def create_room(
     No entity_id may already belong to another room for the owner.
     The owner of the room is determined by payload.user_id (if provided) or defaults to the current user.
     """
-    # Determine the owner of the room: explicit user_id or current user
+    # this determines the the owner of the room: explicit user_id or current user
     owner_user_id = payload.user_id or current_user.id
 
     owner_result = await db.execute(

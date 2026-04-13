@@ -143,7 +143,7 @@ def _sync_now_minus_hours(hours: int):
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # fallback to real utc if called in a strict sync context inside active loop
+            # fallback to real utc if called in a strict sync context inside acitve loop
             from datetime import datetime, timezone
             return datetime.now(timezone.utc) - timedelta(hours=hours)
     except RuntimeError:

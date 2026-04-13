@@ -23,7 +23,7 @@ async def listen_events(url: str, token: str, event_type: str | None):
         auth_reply = await ws.recv()
         print("<<", auth_reply)
 
-        # 3) Subscribe to events
+        #  Sub to ebents
         subscription_id = 1
         subscribe_msg = {
             "id": subscription_id,
@@ -36,7 +36,7 @@ async def listen_events(url: str, token: str, event_type: str | None):
         sub_reply = await ws.recv()
         print("<<", sub_reply)
 
-        # 4) Print all incoming events
+        # print all events
         print("Listening for events... Press Ctrl+C to stop.\n")
         try:
             while True:
@@ -63,7 +63,7 @@ async def listen_events(url: str, token: str, event_type: str | None):
                         if not (
                             "binary_sensor" in entity_id
                         ):
-                            # Skip these noisy metrics
+                            # Skipping these noisy metrics
                             continue
 
                 print("<< event:")
@@ -94,7 +94,7 @@ def _build_ws_url(base_url: str) -> str:
     else:
         ws_url = base_url
 
-    # Ensure it ends with /api/websocket
+    #  ends with /api/websocket
     if ws_url.endswith("/websocket"):
         return ws_url
     if ws_url.endswith("/api"):
@@ -103,7 +103,7 @@ def _build_ws_url(base_url: str) -> str:
 
 
 def main():
-    # Prefer env var over hard-coded token in config for safety.
+    # safety
     token = os.getenv("HASS_TOKEN", ACCESS_TOKEN)
     ws_url = _build_ws_url(HOME_ASSISTANT_URL)
     asyncio.run(listen_events(ws_url, token, None))
