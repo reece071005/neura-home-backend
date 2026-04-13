@@ -97,6 +97,38 @@ def _find_room_by_name(rooms: list[dict], room: str) -> dict | None:
     return None
 
 
+def _build_model_entry(artifact: Any) -> Dict[str, Any]:
+    if artifact is None:
+        return {
+            "trained": False,
+            "metrics": None,
+        }
+
+    entry: Dict[str, Any] = {
+        "trained": True,
+        "metrics": getattr(artifact, "metrics", None),
+    }
+
+    if hasattr(artifact, "feature_columns"):
+        entry["feature_columns"] = getattr(artifact, "feature_columns", None)
+
+    if hasattr(artifact, "fan_entity_id"):
+        entry["fan_entity_id"] = getattr(artifact, "fan_entity_id", None)
+
+    if hasattr(artifact, "climate_entity_id"):
+        entry["climate_entity_id"] = getattr(artifact, "climate_entity_id", None)
+
+    if hasattr(artifact, "domain"):
+        entry["domain"] = getattr(artifact, "domain", None)
+
+    if hasattr(artifact, "cfg") and getattr(artifact, "cfg", None) is not None:
+        cfg = getattr(artifact, "cfg")
+        entry["horizon_minutes"] = getattr(cfg, "horizon_minutes", None)
+        entry["freq"] = getattr(cfg, "freq", None)
+
+    return entry
+
+
 @router.get("/rooms")
 async def list_rooms():
     rooms = []
@@ -153,6 +185,27 @@ async def arrival_preview(
         "preview": True,
         "suggestions": result.get("suggestions", []),
         "precondition_config_used": result.get("precondition_config_used"),
+    }
+
+
+@router.get("/model-summary")
+async def model_summary(
+    room: str = Query(...),
+):
+    light_artifact = XGBLightTrainer.load_artifact(room)
+    climate_active_artifact = XGBClimateTrainer.load_artifact(room)
+    climate_temp_artifact = XGBClimateTempTrainer.load_artifact(room)
+    fan_artifact = XGBFanTrainer.load_artifact(room)
+
+    return {
+        "ok": True,
+        "room": room,
+        "models": {
+            "light": _build_model_entry(light_artifact),
+            "climate_active": _build_model_entry(climate_active_artifact),
+            "climate_temp": _build_model_entry(climate_temp_artifact),
+            "fan": _build_model_entry(fan_artifact),
+        },
     }
 
 
@@ -373,7 +426,6 @@ async def train_room_all_xgb(room: str, days: int = 60, horizon_minutes: int = 1
         "covers": [],
     }
 
-    # 1) Train light
     try:
         results["light"] = XGBLightTrainer.train_room_light(
             room=room,
@@ -387,7 +439,6 @@ async def train_room_all_xgb(room: str, days: int = 60, horizon_minutes: int = 1
             "message": f"Light training failed: {e}",
         }
 
-    # 2) Train climate active
     try:
         results["climate_active"] = XGBClimateTrainer.train_room_climate_active(
             room=room,
@@ -401,7 +452,6 @@ async def train_room_all_xgb(room: str, days: int = 60, horizon_minutes: int = 1
             "message": f"Climate active training failed: {e}",
         }
 
-    # 3) Train climate setpoint
     try:
         results["climate_temp"] = XGBClimateTempTrainer.train_room_climate_setpoint(
             room=room,
@@ -415,7 +465,6 @@ async def train_room_all_xgb(room: str, days: int = 60, horizon_minutes: int = 1
             "message": f"Climate setpoint training failed: {e}",
         }
 
-    # 4) Train fan
     try:
         results["fan"] = XGBFanTrainer.train_room_fan(
             room=room,
@@ -429,7 +478,6 @@ async def train_room_all_xgb(room: str, days: int = 60, horizon_minutes: int = 1
             "message": f"Fan training failed: {e}",
         }
 
-    # 5) Train covers for this room
     try:
         rooms = await fetch_all_rooms()
         room_obj = _find_room_by_name(rooms, room)
