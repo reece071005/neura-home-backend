@@ -47,7 +47,8 @@ class VoiceAssistant:
             return max(0, min(255, round(numeric)))
 
         if isinstance(brightness, (int, float)):
-            return max(0, min(255, round(float(brightness))))
+            percent = max(0.0, min(100.0, float(brightness)))
+            return round((percent / 100.0) * 255)
 
         return None
 
