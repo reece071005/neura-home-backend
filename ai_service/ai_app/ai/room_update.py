@@ -14,7 +14,7 @@ async def get_current_rooms():
         
         try:
             res = await conn.fetch("SELECT * FROM rooms")
-            # Convert asyncpg.Record objects to dictionaries
+            # Converting thr asyncpg.record objects to dictionaries
             json_data = [
                 {key: value.isoformat() if isinstance(value, datetime) else value 
                  for key, value in record.items()}

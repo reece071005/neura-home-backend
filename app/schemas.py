@@ -206,7 +206,6 @@ class HomeAssistantConfigResponse(BaseModel):
     secret: Optional[str] = None
 
 
-# ---------- Userfaces ----------
 
 class UserfaceResponse(BaseModel):
     user_id: int
@@ -225,7 +224,6 @@ class UserfaceDelete(BaseModel):
     status: str
 
 
-# ---------- Camera Tracking ----------
 
 class CameraAdd(BaseModel):
     entity_id: str
@@ -243,7 +241,6 @@ class CameraDelete(BaseModel):
     entity_id: str
 
 
-# ---------- Room configurations ----------
 
 class RoomBase(BaseModel):
     name: str

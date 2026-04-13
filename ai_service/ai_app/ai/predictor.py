@@ -77,7 +77,7 @@ async def _get_room_config(room_name: str) -> dict | None:
             entity_ids = room_obj.get("entity_ids") or []
             cfg = build_config_from_entities(entity_ids)
 
-            # Make sure presence sensors are also treated as motion-like triggers
+            # Making usre that the  presence sensors are also treated as motion-like triggers
             motion_like_entities = _extract_motion_like_entities(entity_ids)
             existing_motion = cfg.get("motion", []) or []
             merged_motion = list(dict.fromkeys(existing_motion + motion_like_entities))
@@ -100,7 +100,7 @@ async def _get_room_config(room_name: str) -> dict | None:
         fb = dict(fallback)
         fb["precondition"] = dict(fb.get("precondition") or DEFAULT_PRECONDITION)
 
-        # Also normalize fallback motion list if present
+
         fb_motion = fb.get("motion", []) or []
         fb["motion"] = list(dict.fromkeys(_extract_motion_like_entities(fb_motion) + fb_motion))
 
@@ -470,8 +470,8 @@ class Predictor:
         has_motion_sensor = len(motion_entities) > 0
 
         # Default behavior:
-        # - if room has motion/presence/occupancy sensor -> AI on by default
-        # - otherwise -> AI off by default
+        #  if room has motion/presence/occupancy sensor then AI on by default
+        # else otherwise,  AI off by default
         ai_enabled = has_motion_sensor
 
         saved_pref = await RoomAIPreferenceStore.get_room_ai_enabled(room=room)
@@ -518,9 +518,7 @@ class Predictor:
 
         suggestions: List[Dict[str, Any]] = []
 
-        # -----------------------------
-        # LIGHT SUGGESTIONS
-        # -----------------------------
+        #light suggestions
         if not (motion_required and motion_entities and not motion_detected):
             for entity in config.get("lights", []):
                 try:
@@ -563,9 +561,7 @@ class Predictor:
                 except Exception as e:
                     print(f"[AI] Light suggestion failed for {entity}: {e}")
 
-        # -----------------------------
-        # CLIMATE SUGGESTIONS
-        # -----------------------------
+        #climate suggestions
         pre_cfg = effective_pre_cfg or {}
         if bool(pre_cfg.get("enabled", False)):
             now_local = await _local_now_dubai()
@@ -681,9 +677,7 @@ class Predictor:
                         except Exception as e:
                             print(f"[AI] Climate suggestion failed for {entity}: {e}")
 
-        # -----------------------------
-        # FAN SUGGESTIONS
-        # -----------------------------
+        #fan suggestions
         if not (motion_required and motion_entities and not motion_detected):
             for entity in config.get("fans", []):
                 try:
@@ -743,9 +737,7 @@ class Predictor:
                 except Exception as e:
                     print(f"[AI] Fan suggestion failed for {entity}: {e}")
 
-        # -----------------------------
-        # COVER SUGGESTIONS
-        # -----------------------------
+        #cover suggestions
         if not (motion_required and motion_entities and not motion_detected):
             for entity in config.get("covers", []):
                 try:

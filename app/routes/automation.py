@@ -25,7 +25,7 @@ async def run_automation(room: str):
     """
 
     try:
-        # 1️⃣ Call AI service
+        # Call AI service
         async with aiohttp.ClientSession() as session:
             async with session.get(
                 f"{AI_SERVICE_URL}/ai/smart-suggestions",
@@ -44,7 +44,7 @@ async def run_automation(room: str):
 
         results = []
 
-        # 2️⃣ Execute suggestions
+        # Execute suggestions
         for suggestion in suggestions:
 
             suggestion_type = suggestion.get("type")

@@ -7,14 +7,14 @@ ROOM_CONFIG = {
         "covers": ["reece_s_window_blind", "reece_s_door_blind"],
         "motion": ["kids_rooms_occupancy"],
 
-        # NEW: preconditioning plan (arrival-based climate)
+        # preconditioning plan (arrival-based climate)
         "precondition": {
             "enabled": True,
             "arrival_time_weekday": "18:30",   # Dubai local time
             "arrival_time_weekend": "13:00",
-            "lead_minutes": 20,                # start AC this many minutes before arrival
+            "lead_minutes": 20,            # start AC this many minutes before arrival
             "min_temp_delta": 1.0,             # only act if |setpoint - current| >= this
-            "fallback_setpoint": 24.0,         # used if model is missing/unavailable
+            "fallback_setpoint": 24.0,        # used if model is missing/unavailable
         },
     },
     "guest_room": {
@@ -24,7 +24,7 @@ ROOM_CONFIG = {
         "motion": ["guest_room_occupancy"],
 
         "precondition": {
-            "enabled": False,                  # set True if you want guest room preconditioning too
+            "enabled": False,                  # set True if we want guest room preconditioning too
             "arrival_time_weekday": "18:30",
             "arrival_time_weekend": "13:00",
             "lead_minutes": 20,

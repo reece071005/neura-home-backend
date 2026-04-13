@@ -44,7 +44,7 @@ def _image_path_to_base64(image_path: str | None) -> str | None:
         return None
     try:
         data = path.read_bytes()
-        # Return a JPEG data URL (data:image/jpeg;base64,...) for easy use in <img src="...">
+        # tjis will return a JPEG data URL (data:image/jpeg;base64,...) for easy use in <img src="...">
         b64 = base64.b64encode(data).decode("ascii")
         return f"data:image/jpeg;base64,{b64}"
     except Exception:
@@ -146,8 +146,7 @@ async def create_detection_notification(
     return {"id": entry.id, "message": entry.message, "created_at": entry.created_at}
 
 
-# ---------- Camera Tracking Endpoints ----------
-
+##camera tracking endpoints
 @router.get("/cameras", response_model=schemas.CameraResponse)
 async def get_tracked_cameras(
     db: AsyncSession = Depends(get_db),
@@ -238,7 +237,7 @@ async def add_cameras_batch(
         config.value = {"entity_ids": entity_ids}
         added_count = len(new_ids)
     else:
-        # Remove duplicates from input
+        # remove duplicates from input
         entity_ids = list(dict.fromkeys(payload.entity_ids))  # Preserves order while removing duplicates
         config = models.Configuration(
             key="tracked_cameras",

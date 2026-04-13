@@ -59,16 +59,16 @@ class XGBCoverTrainer:
         if df_ts.empty:
             return {"trained": False, "entity_id": entity_id, "message": "No valid position data."}
 
-        # Time features
+
         df_ts["hour"] = df_ts["time"].dt.hour
         df_ts["weekday"] = df_ts["time"].dt.weekday
         df_ts["is_weekend"] = (df_ts["weekday"] >= 5).astype(int)
 
-        # Lag features
+
         df_ts["position_lag1"] = df_ts["current_position"].shift(1)
         df_ts["position_roll_mean_30m"] = df_ts["current_position"].rolling(window=6, min_periods=1).mean()
 
-        # Target
+
         step_minutes = int(pd.Timedelta(cfg.freq).total_seconds() // 60)
         horizon_steps = max(1, cfg.horizon_minutes // step_minutes)
 
