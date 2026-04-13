@@ -25,6 +25,34 @@ class VoiceAssistant:
 
 
     @staticmethod
+    def _normalize_brightness(brightness: Any) -> int | None:
+        """Convert brightness like '80%' into Home Assistant's 0-255 scale."""
+        if brightness is None:
+            return None
+
+        if isinstance(brightness, str):
+            value = brightness.strip()
+            if value.endswith("%"):
+                percent_str = value[:-1].strip()
+                try:
+                    percent = float(percent_str)
+                except ValueError:
+                    return None
+                percent = max(0.0, min(100.0, percent))
+                return round((percent / 100.0) * 255)
+            try:
+                numeric = float(value)
+            except ValueError:
+                return None
+            return max(0, min(255, round(numeric)))
+
+        if isinstance(brightness, (int, float)):
+            return max(0, min(255, round(float(brightness))))
+
+        return None
+
+
+    @staticmethod
     async def search_commands(query: str) -> dict | None:
         redis = await get_redis()
         controllable_devices = await redis.get("controllable_devices")
@@ -62,7 +90,7 @@ class VoiceAssistant:
                 light_state = schemas.LightState(
                     entity_id=entity_id,
                     state="on",
-                    brightness=parameters.get("brightness"),
+                    brightness=VoiceAssistant._normalize_brightness(parameters.get("brightness")),
                     color_name=parameters.get("color_name"),
                     rgb_color=parameters.get("rgb_color"),
                     color_temp_kelvin=parameters.get("color_temp_kelvin"),
