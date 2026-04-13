@@ -16,12 +16,7 @@ ACCESS_TOKEN: Optional[str] = os.getenv("HOME_ASSISTANT_ACCESS_TOKEN")
 HEADERS: dict[str, str] = {}
 if ACCESS_TOKEN:
     HEADERS["Authorization"] = f"Bearer {ACCESS_TOKEN}"
-# HOME_ASSISTANT_URL = "https://70i5piqxrwxbmwtnseu92fpobavxtcpe.ui.nabu.casa/api"
-# ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjOTU0NGZmOTVmNTg0NDU4YThhYjRkMzc2NDc4YzRkYSIsImlhdCI6MTc2ODMyMDI5MiwiZXhwIjoyMDgzNjgwMjkyfQ.d6JJi6e4lSOj8dJMIRul3ce32E10t4bzb-VKIZlFRoM"
-# HA_HEADERS = {
-#     "Authorization": f"Bearer {ACCESS_TOKEN}",
-#     "Content-Type": "application/json",
-# }
+
 
 
 async def load_home_assistant_config_from_db() -> None:
