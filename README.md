@@ -14,14 +14,27 @@ An AI-driven smart home backend platform that powers device control, behavioural
   &nbsp;&nbsp;|&nbsp;&nbsp;
   <a href="https://www.youtube.com/watch?v=8MGqcfFiD_Q">
     <img src="https://cdn.simpleicons.org/youtube" width="18" style="vertical-align: middle;" />
-    Demo Video
+    Demo&nbsp;Video
   </a>
   &nbsp;&nbsp;|&nbsp;&nbsp;
   <a href="https://www.instagram.com/neurahome42">
     <img src="https://cdn.simpleicons.org/instagram" width="18" style="vertical-align: middle;" />
     Instagram
   </a>
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  <a href="docs/NeuraHomeFinalProjectReport.pdf">
+    📄 Final Project Report
+  </a>
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  <a href="/docs/NeuraHomeTechnicalPoster.png">
+    🧠&nbsp;Technical&nbsp;Poster
+  </a>
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  <a href="/docs/NeuraHomeMarketingPoster.png">
+    🎨&nbsp;Marketing&nbsp;Poster
+  </a>
 </div>
+<br>
 
 **Note:** This repository contains the **backend hub, AI services, and system orchestration** for the Neura Home platform. The mobile frontend application is maintained in a separate repository.
 
